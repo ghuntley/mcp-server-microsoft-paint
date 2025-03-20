@@ -1,0 +1,26 @@
+[package]
+name = "paint-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.28", features = ["full"] }
+axum = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+windows = { version = "0.48", features = [
+    "Win32_UI_WindowsAndMessaging", 
+    "Win32_Foundation", 
+    "Win32_Graphics_Gdi", 
+    "Win32_UI_Input_KeyboardAndMouse", 
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Input",
+    "Win32_System_Process",
+    "Win32_UI_Controls",
+    "Win32_UI_WindowsAndMessaging_Menus"
+] }
+anyhow = "1.0"
