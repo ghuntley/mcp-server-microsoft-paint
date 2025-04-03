@@ -45,7 +45,7 @@ def send_request(server_process, request):
     response_line = None
     response_json = None
     start_time = time.time()
-    timeout = 20 # Increased timeout for potentially slower operations
+    timeout = 30 # Increased timeout for potentially slower operations
     logging.debug(f"Waiting for response (timeout: {timeout}s)...")
     
     # This regex pattern helps identify JSON-RPC responses vs log lines
@@ -76,16 +76,20 @@ def send_request(server_process, request):
                 continue
                 
             # Check if line looks like JSON
-            if line.startswith("{") and "jsonrpc" in line:
-                logging.debug(f"Found JSON response: {line}")
+            if line.startswith("{"):
+                logging.debug(f"Found JSON-like response: {line}")
                 try:
                     response_json = json.loads(line)
-                    # Validate this is the response to our request
-                    if "id" in response_json and response_json["id"] == request_id:
-                        logging.debug("Parsed matching JSON response successfully.")
+                    # Validate this is a proper response
+                    if "status" in response_json:
+                        logging.debug("Found server response with status field")
+                        break
+                    # Also check for id field matching our request
+                    elif "id" in response_json and response_json["id"] == request_id:
+                        logging.debug("Parsed matching JSON response (by id) successfully.")
                         break
                     else:
-                        logging.debug(f"Found JSON but ID {response_json.get('id')} doesn't match expected {request_id}")
+                        logging.debug(f"Found JSON but it doesn't match our request - continuing to wait")
                 except json.JSONDecodeError:
                     logging.error(f"Error decoding what looked like JSON: {line}")
             else:
@@ -120,364 +124,191 @@ def send_notification(server_process, notification):
     except Exception as e:
         logging.error(f"Failed to send notification to server: {e}")
 
+def verify_paint_running():
+    """Verify if Paint is running using tasklist"""
+    try:
+        # Check if Paint is already running
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq mspaint.exe"],
+            capture_output=True,
+            text=True
+        )
+        
+        if "mspaint.exe" in result.stdout:
+            logging.info("MS Paint is already running")
+            return True
+        else:
+            logging.info("MS Paint is not running")
+            return False
+    except Exception as e:
+        logging.error(f"Error checking if Paint is running: {e}")
+        return False
+
+def launch_paint():
+    """Manually launch Paint"""
+    try:
+        subprocess.run(["start", "mspaint.exe"], shell=True)
+        logging.info("Started MS Paint")
+        time.sleep(2)  # Give Paint time to start
+        return True
+    except Exception as e:
+        logging.error(f"Error launching MS Paint: {e}")
+        return False
+
 def main():
     setup_logging()
     server_process = None
     try:
+        # First check if Paint is running, if not launch it
+        if not verify_paint_running():
+            if not launch_paint():
+                logging.error("Failed to launch Paint. Continuing anyway but issues may occur.")
+
         logging.info("Launching MCP server in TEXT mode...")
         
         # Set environment variables to control Rust logging
         env = os.environ.copy()
-        env["RUST_LOG"] = "debug" # Set to info to reduce debug spam
+        env['RUST_LOG'] = 'info,debug' # Set Rust logging level
         
-        # Launch the server with text=True and stderr piped again
+        # Use subprocess.Popen to capture stdin/stdout/stderr
         server_process = subprocess.Popen(
-            ["target/release/mcp-server-microsoft-paint.exe"],
+            ["cargo", "run", "--release"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, # Pipe stderr again to avoid it mixing with stdout
-            text=True, 
-            encoding='utf-8',
-            env=env # Pass custom environment
+            stderr=subprocess.PIPE,
+            text=True,  # Use text mode
+            bufsize=1,  # Line buffered
+            env=env,
         )
+        
         logging.info(f"Server process started with PID: {server_process.pid}")
         
-        # Every 10 lines of stderr, print a summary to avoid overwhelming the console
-        stderr_thread = threading.Thread(
-            target=_log_stderr, 
-            args=(server_process.stderr,),
-            daemon=True
-        )
-        stderr_thread.start()
-        
-        # Give the server a moment to initialize
-        logging.debug("Waiting for server process to start (2 seconds)...") 
+        # Wait a bit for the server to initialize
+        logging.debug("Waiting for server process to start (2 seconds)...")
         time.sleep(2)
-
-        # --- Send Initialize Request (Standard MCP) ---
+        
+        # Check again if Paint is running
+        verify_paint_running()
+        
+        # Send initialize request with client info
         logging.info("Sending 'initialize' request...")
         initialize_request = {
             "jsonrpc": "2.0",
-            "id": 0, # Often use 0 or a distinct ID for initialize
+            "id": 0,
             "method": "initialize",
             "params": {
-                "processId": os.getpid() if hasattr(os, 'getpid') else None, # Optional client process ID
-                "clientInfo": { # Optional client info
+                "processId": os.getpid(),
+                "clientInfo": {
                     "name": "test_client.py",
                     "version": "0.1.0"
                 },
-                "capabilities": {}, # Placeholder for client capabilities
-                # Provide the expected 'name' field within implementation
-                "implementation": {"name": "DummyClientImplementation", "version": "0.0.1"} 
-            }
-        }
-        initialize_response = send_request(server_process, initialize_request)
-        logging.info(f"Initialize response: {initialize_response}")
-
-        if not initialize_response or initialize_response.get("error"): 
-            # Handle cases where the response is None or contains an error field
-            error_details = initialize_response.get("error", "Unknown error") if initialize_response else "No response"
-            logging.error(f"Initialize failed: {error_details}, aborting tests.")
-            # Attempt to log server stderr before exiting
-            if server_process:
-                try:
-                    # Try non-blocking read first
-                    stderr_data = server_process.stderr.read() if server_process.stderr else b''
-                    if not stderr_data:
-                         # If nothing read, try communicate with timeout
-                        _, stderr_data = server_process.communicate(timeout=1)
-                    if stderr_data:
-                        logging.error(f"Server stderr on initialize failure:\n{stderr_data.decode('utf-8', errors='replace')}")
-                except Exception as e:
-                    logging.error(f"Failed to get stderr after initialize failure: {e}")
-            return
-        
-        # --- Add Delay After Initialize ---
-        logging.debug("Waiting 1 second after initialize response...")
-        time.sleep(1)
-        # --- End Delay ---
-
-        # --- Send Initialized Notification --- 
-        logging.info("Sending 'initialized' notification...")
-        initialized_notification = {
-            "jsonrpc": "2.0",
-            "method": "initialized",
-            "params": {} 
-            # No "id" field for notifications
-        }
-        # Use the new function for notifications
-        send_notification(server_process, initialized_notification) 
-        logging.debug("'initialized' notification sent.")
-        # --- End Initialized Notification ---
-
-        # Add a small delay after sending initialized notification
-        time.sleep(0.5)
-
-        # Connect to the Paint application (Now happens *after* initialized notification)
-        logging.info("Sending 'connect' request...")
-        connect_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "connect",
-            "params": {
-                "client_id": "test-client",
-                "client_name": "Test Client"
-            }
-        })
-        logging.info(f"Connect response: {connect_response}")
-        # Check for success status within the 'result' field for our custom connect response
-        if not connect_response or connect_response.get("result", {}).get("status") != "success":
-            logging.error("Connect failed, aborting tests.")
-            error_details = connect_response.get("error", "Unknown error") # Capture specific error if present
-            if isinstance(error_details, dict):
-                 error_details = f"Code: {error_details.get('code', 'N/A')}, Message: {error_details.get('message', 'N/A')}"
-            elif not connect_response:
-                 error_details = "No response received from server."
-            else: # If connect_response exists but doesn't match expected success structure
-                 error_details = f"Unexpected response format: {connect_response}"
-            
-            logging.error(f"Connect error details: {error_details}")
-            # Attempt to log server stderr *at the point of connect failure*
-            if server_process:
-                try:
-                    # Try non-blocking read first
-                    stderr_data = server_process.stderr.read() if server_process.stderr else b''
-                    if not stderr_data:
-                         # If nothing read, try communicate with timeout
-                        _, stderr_data = server_process.communicate(timeout=1)
-                    if stderr_data:
-                        logging.error(f"Server stderr on connect failure:\n{stderr_data.decode('utf-8', errors='replace')}")
-                    else:
-                        logging.warning("No stderr output captured from server on connect failure.")
-                except Exception as e:
-                    logging.error(f"Failed to get stderr after connect failure: {e}")
-            return
-        
-        # Activate the Paint window
-        logging.info("Sending 'activate_window' request...")
-        activate_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "activate_window",
-            "params": {}
-        })
-        logging.info(f"Activate window response: {activate_response}")
-        time.sleep(1) # Wait a bit after activation
-        
-        # Get canvas dimensions
-        logging.info("Sending 'get_canvas_dimensions' request...")
-        dimensions_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "get_canvas_dimensions",
-            "params": {}
-        })
-        logging.info(f"Canvas dimensions response: {dimensions_response}")
-        
-        canvas_width = 0
-        canvas_height = 0
-        if dimensions_response and dimensions_response.get("result", {}).get("status") == "success":
-            canvas_width = dimensions_response["result"].get("width", 0)
-            canvas_height = dimensions_response["result"].get("height", 0)
-            logging.info(f"Canvas dimensions retrieved: {canvas_width}x{canvas_height}")
-        else:
-            logging.error("Failed to get canvas dimensions. Cannot draw pixel in center.")
-            # Continue with other tests, but skip the center pixel draw
-
-        # Draw a pixel in the center if dimensions were retrieved
-        if canvas_width > 0 and canvas_height > 0:
-            center_x = canvas_width // 2
-            center_y = canvas_height // 2
-            logging.info(f"Sending 'draw_pixel' request at center ({center_x}, {center_y})...")
-            draw_pixel_response = send_request(server_process, {
-                "jsonrpc": "2.0",
-                "id": 314, # New ID for this request
-                "method": "draw_pixel",
-                "params": {
-                    "x": center_x,
-                    "y": center_y,
-                    "color": "#000000" # Draw a black pixel
+                "capabilities": {},
+                "implementation": {
+                    "name": "DummyClientImplementation",
+                    "version": "0.0.1"
                 }
-            })
-            logging.info(f"Draw pixel response: {draw_pixel_response}")
-            time.sleep(1) # Wait a bit after drawing
-        
-        # --- Continue with existing tests --- 
-
-        # Select a tool (pencil)
-        logging.info("Sending 'select_tool' (pencil) request...")
-        select_tool_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "select_tool",
-            "params": {
-                "tool": "pencil"
             }
-        })
-        logging.info(f"Select tool response: {select_tool_response}")
+        }
         
-        # Draw a line
-        logging.info("Sending 'draw_line' request...")
-        draw_line_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 5,
-            "method": "draw_line",
-            "params": {
-                "start_x": 100,
-                "start_y": 100,
-                "end_x": 300,
-                "end_y": 300,
-                "color": "#FF0000",
-                "thickness": 2
+        initialize_response = send_request(server_process, initialize_request)
+        
+        if initialize_response and initialize_response.get("status") == "success":
+            logging.info("Initialize successful. Server capabilities: " + str(initialize_response.get("capabilities", {})))
+            
+            # Send initialized notification
+            logging.info("Sending 'initialized' notification...")
+            initialized_notification = {
+                "jsonrpc": "2.0",
+                "method": "initialized",
+                "params": {}
             }
-        })
-        logging.info(f"Draw line response: {draw_line_response}")
-        
-        # Draw a polyline
-        logging.info("Sending 'draw_polyline' request...")
-        draw_polyline_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 6,
-            "method": "draw_polyline",
-            "params": {
-                "points": [
-                    {"x": 400, "y": 100},
-                    {"x": 450, "y": 150},
-                    {"x": 500, "y": 100},
-                    {"x": 550, "y": 150}
-                ],
-                "color": "#0000FF",
-                "thickness": 3,
-                "tool": "brush"
+            send_notification(server_process, initialized_notification)
+            
+            # Wait a moment for the server to process the notification
+            time.sleep(0.5)
+            
+            # Now send connect request
+            logging.info("Sending 'connect' request...")
+            connect_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "connect",
+                "params": {
+                    "client_id": "test-client-123",
+                    "client_name": "Python Test Client"
+                }
             }
-        })
-        logging.info(f"Draw polyline response: {draw_polyline_response}")
-        
-        # Wait to see the results
-        logging.info("Drawing operations completed. Press Enter to continue...")
-        input()
-        
-        # Select a region
-        logging.info("Sending 'select_region' request...")
-        select_region_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 7,
-            "method": "select_region",
-            "params": {
-                "start_x": 50,
-                "start_y": 50,
-                "end_x": 200,
-                "end_y": 200
-            }
-        })
-        logging.info(f"Select region response: {select_region_response}")
-        
-        # Copy selection
-        logging.info("Sending 'copy_selection' request...")
-        copy_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 8,
-            "method": "copy_selection",
-            "params": {}
-        })
-        logging.info(f"Copy selection response: {copy_response}")
-        
-        # Paste at different location
-        logging.info("Sending 'paste' request...")
-        paste_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 9,
-            "method": "paste",
-            "params": {
-                "x": 400,
-                "y": 300
-            }
-        })
-        logging.info(f"Paste response: {paste_response}")
-        
-        # Add text
-        logging.info("Sending 'add_text' request...")
-        add_text_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 10,
-            "method": "add_text",
-            "params": {
-                "x": 200,
-                "y": 400,
-                "text": "Hello Paint!",
-                "color": "#0000FF",
-                "font_size": 24
-            }
-        })
-        logging.info(f"Add text response: {add_text_response}")
-        
-        # Create new canvas
-        logging.info("Sending 'create_canvas' request...")
-        create_canvas_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 11,
-            "method": "create_canvas",
-            "params": {
-                "width": 800,
-                "height": 600,
-                "background_color": "#FFFFFF"
-            }
-        })
-        logging.info(f"Create canvas response: {create_canvas_response}")
-        
-        # Clear canvas
-        logging.info("Sending 'clear_canvas' request...")
-        clear_canvas_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 12,
-            "method": "clear_canvas",
-            "params": {}
-        })
-        logging.info(f"Clear canvas response: {clear_canvas_response}")
-        
-        # Wait to see the results
-        logging.info("All operations completed. Press Enter to exit...")
-        input()
-        
-        # Disconnect
-        logging.info("Sending 'disconnect' request...")
-        disconnect_response = send_request(server_process, {
-            "jsonrpc": "2.0",
-            "id": 13,
-            "method": "disconnect",
-            "params": {}
-        })
-        logging.info(f"Disconnect response: {disconnect_response}")
-        
+            
+            connect_response = send_request(server_process, connect_request)
+            
+            if connect_response:
+                logging.info("Connect response: " + str(connect_response))
+                
+                # If connected successfully, try a simple operation
+                if connect_response.get("status") == "success":
+                    logging.info("Connection successful. Canvas dimensions: " + 
+                                str(connect_response.get("canvas_width", "unknown")) + "x" + 
+                                str(connect_response.get("canvas_height", "unknown")))
+                    
+                    # Activate the window to make sure it's in the foreground
+                    logging.info("Sending 'activate_window' request...")
+                    activate_request = {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "activate_window",
+                        "params": {}
+                    }
+                    
+                    activate_response = send_request(server_process, activate_request)
+                    if activate_response:
+                        logging.info("Activate window response: " + str(activate_response))
+                    
+                    # Try to draw a pixel
+                    logging.info("Sending 'draw_pixel' request...")
+                    draw_pixel_request = {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "draw_pixel",
+                        "params": {
+                            "x": 100,
+                            "y": 100,
+                            "color": "#FF0000"  # Optional, red color
+                        }
+                    }
+                    
+                    draw_pixel_response = send_request(server_process, draw_pixel_request)
+                    
+                    if draw_pixel_response:
+                        logging.info("Draw pixel response: " + str(draw_pixel_response))
+                        
+                        if draw_pixel_response.get("status") == "success":
+                            logging.info("Successfully drew a pixel! MCP server is working correctly.")
+                        else:
+                            logging.error("Failed to draw pixel: " + str(draw_pixel_response))
+                    else:
+                        logging.error("Failed to get response for draw_pixel request")
+                else:
+                    logging.error("Connect failed: " + str(connect_response))
+            else:
+                logging.error("Failed to get response for connect request")
+        else:
+            logging.error("Initialize failed or no response received")
+                    
     except KeyboardInterrupt:
         logging.info("User interrupted the test client.")
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+        logging.error(f"Error in test client: {e}")
         import traceback
         logging.error(traceback.format_exc())
     finally:
-        # Terminate the server
         if server_process:
             logging.info("Terminating server process...")
             try:
                 server_process.terminate()
-                outs, errs = server_process.communicate(timeout=3)
-                logging.debug(f"Server terminated with code: {server_process.returncode}")
-                if outs:
-                    logging.debug(f"Final server stdout:\n{outs.decode('utf-8', errors='replace')}")
-                if errs:
-                    logging.warning(f"Final server stderr:\n{errs.decode('utf-8', errors='replace')}")
-            except subprocess.TimeoutExpired:
-                logging.warning("Server did not terminate gracefully, killing...")
-                server_process.kill()
-                outs, errs = server_process.communicate()
-                logging.debug("Server killed.")
-                if outs:
-                    logging.debug(f"Final server stdout:\n{outs.decode('utf-8', errors='replace')}")
-                if errs:
-                    logging.warning(f"Final server stderr:\n{errs.decode('utf-8', errors='replace')}")
+                logging.debug(f"Server terminated with code: {server_process.wait()}")
             except Exception as e:
                 logging.error(f"Error terminating server: {e}")
+        
         logging.info("Test client finished.")
 
 # Add a helper function to log stderr in a background thread

@@ -5,7 +5,7 @@ use crate::protocol::{ConnectParams, ConnectResponse, success_response, DrawPixe
 use crate::windows;
 use crate::windows::{get_paint_hwnd, get_initial_canvas_dimensions, activate_paint_window, get_canvas_dimensions, draw_pixel_at, draw_line_at, draw_shape, draw_polyline, clear_canvas, select_region, copy_selection, paste_at, add_text, create_canvas};
 use crate::PaintServerState; // Import the state struct from lib.rs
-use log::info;
+use log::{info, warn, error, debug};
 use serde_json::{json, Value};
 use std::time;
 use tokio;
@@ -701,6 +701,118 @@ pub async fn handle_create_canvas(
         "status": "success",
         "canvas_width": width,
         "canvas_height": height
+    }))
+}
+
+// Handler for the 'initialize' method
+pub async fn handle_initialize(
+    state: PaintServerState,
+    _params: Option<Value>,
+) -> Result<Value> {
+    info!("Server received initialize request. Finding/Launching Paint...");
+
+    // Diagnostic: Before attempting to find Paint window
+    let _ = std::process::Command::new("powershell")
+        .args(["-Command", "Write-Host 'Diagnostic: Process list before Paint detection';", "Get-Process | Where-Object { $_.ProcessName -like '*paint*' } | Format-Table -Property Id,ProcessName,MainWindowTitle"])
+        .status();
+
+    // First check if mspaint.exe is already running
+    let _ = std::process::Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq mspaint.exe", "/FO", "LIST"])
+        .status();
+    
+    // Try to find a Paint window using all available methods
+    let paint_hwnd = match windows::get_direct_paint_hwnd() {
+        Ok(hwnd) => {
+            info!("Found Paint window directly: HWND={}", hwnd);
+            hwnd
+        },
+        Err(_) => {
+            // Direct method failed, try the previous methods
+            match windows::get_paint_hwnd() {
+                Ok(hwnd) => {
+                    info!("Found Paint window using traditional method: HWND={}", hwnd);
+                    hwnd
+                },
+                Err(e) => {
+                    // All methods failed, launch Paint and retry
+                    warn!("All Paint window detection methods failed: {}. Launching Paint...", e);
+                    
+                    // Try direct launch with PowerShell for elevated privileges
+                    let ps_result = std::process::Command::new("powershell")
+                        .args(["-Command", "Start-Process mspaint.exe -WindowStyle Normal"])
+                        .status();
+                        
+                    match ps_result {
+                        Ok(_) => {
+                            info!("Launched Paint using PowerShell");
+                            // Wait for Paint to start
+                            tokio::time::sleep(time::Duration::from_millis(3000)).await;
+                            
+                            // Try direct detection again
+                            match windows::get_direct_paint_hwnd() {
+                                Ok(hwnd) => {
+                                    info!("Found Paint window after PowerShell launch: HWND={}", hwnd);
+                                    hwnd
+                                },
+                                Err(e) => {
+                                    error!("Failed to find Paint window even after PowerShell launch: {}", e);
+                                    return Err(MspMcpError::WindowNotFound);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!("Failed to launch Paint using PowerShell: {}", e);
+                            return Err(MspMcpError::WindowsApiError(format!("Failed to launch Paint: {}", e)));
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Try to activate the window using our robust activation method
+    match windows::activate_paint_window(paint_hwnd) {
+        Ok(_) => {
+            info!("Successfully activated Paint window");
+        },
+        Err(e) => {
+            warn!("Found Paint window but failed to activate it: {}. Will try to use it anyway.", e);
+        }
+    }
+
+    // Store HWND in state
+    {
+        let mut hwnd_state = state.paint_hwnd.lock().map_err(|_| 
+            MspMcpError::General("Failed to lock HWND state".to_string()))?;
+        *hwnd_state = Some(paint_hwnd);
+        info!("Stored Paint HWND in state: {:?}", paint_hwnd);
+    }
+
+    // Get initial canvas dimensions
+    let (width, height) = match windows::get_initial_canvas_dimensions(paint_hwnd) {
+        Ok(dims) => dims,
+        Err(e) => {
+            warn!("Failed to get canvas dimensions: {}. Using defaults.", e);
+            (800, 600) // Default dimensions as fallback
+        }
+    };
+    
+    info!("Initial canvas dimensions: {}x{}", width, height);
+
+    // Return success with basic information
+    Ok(json!({
+        "status": "success",
+        "serverInfo": {
+            "name": "mcp-server-microsoft-paint",
+            "version": env!("CARGO_PKG_VERSION")
+        },
+        "capabilities": {
+            "windowManagement": true,
+            "drawingTools": true,
+            "textTools": true,
+            "selectionTools": true
+        }
     }))
 }
 

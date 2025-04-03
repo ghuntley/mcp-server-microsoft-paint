@@ -1,4 +1,21 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use crate::error::Result;
+use crate::core;
+
+// Define handler type using Box<dyn Fn> to allow storing async functions
+// This avoids type issues with different impl Future types
+pub type MethodHandler = Box<dyn Fn(crate::PaintServerState, Option<Value>) -> 
+    futures::future::BoxFuture<'static, Result<Value>> + Send + Sync>;
+
+// Function to box the handlers properly to match the type
+fn box_handler<F, Fut>(f: F) -> MethodHandler 
+where
+    F: Fn(crate::PaintServerState, Option<Value>) -> Fut + Send + Sync + 'static,
+    Fut: futures::Future<Output = Result<Value>> + Send + 'static,
+{
+    Box::new(move |state, value| Box::pin(f(state, value)))
+}
 
 // === Request Parameters ===
 
@@ -229,4 +246,38 @@ mod tests {
     }
 
     // Add more tests for other structs...
+}
+
+// Map of method names to handler functions
+pub fn get_method_handler(method: &str) -> Option<MethodHandler> {
+    match method {
+        "initialize" => Some(box_handler(core::handle_initialize)),
+        "connect" => Some(box_handler(core::handle_connect)),
+        "activate_window" => Some(box_handler(core::handle_activate_window)),
+        "get_canvas_dimensions" => Some(box_handler(core::handle_get_canvas_dimensions)),
+        "disconnect" => Some(box_handler(core::handle_disconnect)),
+        "get_version" => Some(box_handler(core::handle_get_version)),
+        // Drawing commands
+        "draw_pixel" => Some(box_handler(core::handle_draw_pixel)),
+        "draw_line" => Some(box_handler(core::handle_draw_line)),
+        "draw_shape" => Some(box_handler(core::handle_draw_shape)),
+        "draw_polyline" => Some(box_handler(core::handle_draw_polyline)),
+        // Text operations
+        "add_text" => Some(box_handler(core::handle_add_text)),
+        // Selection operations
+        "select_region" => Some(box_handler(core::handle_select_region)),
+        "copy_selection" => Some(box_handler(core::handle_copy_selection)),
+        "paste" => Some(box_handler(core::handle_paste)),
+        // Canvas operations
+        "clear_canvas" => Some(box_handler(core::handle_clear_canvas)),
+        "create_canvas" => Some(box_handler(core::handle_create_canvas)),
+        // Tool settings
+        "select_tool" => Some(box_handler(core::handle_select_tool)),
+        "set_color" => Some(box_handler(core::handle_set_color)),
+        "set_thickness" => Some(box_handler(core::handle_set_thickness)),
+        "set_brush_size" => Some(box_handler(core::handle_set_brush_size)),
+        "set_fill" => Some(box_handler(core::handle_set_fill)),
+        // Unknown method
+        _ => None,
+    }
 } 

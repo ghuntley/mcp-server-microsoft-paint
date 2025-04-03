@@ -572,7 +572,7 @@ fn is_mspaint_running() -> bool {
 }
 
 /// Last-resort method to find any window that might be Paint
-fn find_any_paint_window() -> Result<HWND> {
+pub fn find_any_paint_window() -> Result<HWND> {
     // This is a more aggressive approach when we know Paint is running
     // but our normal detection methods fail
     
@@ -1703,6 +1703,135 @@ pub fn create_canvas(
     std::thread::sleep(std::time::Duration::from_millis(200));
     
     Ok(())
+}
+
+/// Direct method to get Paint window handle using PowerShell
+pub fn get_direct_paint_hwnd() -> Result<HWND> {
+    info!("Using PowerShell to directly get Paint window handle");
+    
+    // Execute a PowerShell command to get all Paint windows
+    let ps_command = r#"
+        Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        using System.Text;
+        public class WindowInfo {
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+            
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+            
+            [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+            public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+            
+            [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+            public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+            
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool IsWindowVisible(IntPtr hWnd);
+            
+            public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+            
+            public static string GetWindowTitle(IntPtr hWnd) {
+                StringBuilder sb = new StringBuilder(256);
+                GetWindowText(hWnd, sb, sb.Capacity);
+                return sb.ToString();
+            }
+            
+            public static string GetWindowClass(IntPtr hWnd) {
+                StringBuilder sb = new StringBuilder(256);
+                GetClassName(hWnd, sb, sb.Capacity);
+                return sb.ToString();
+            }
+        }
+"@;
+
+        # Enumerate all windows and find Paint windows
+        $paintWindows = @();
+        [WindowInfo]::EnumWindows(
+            {
+                param($hwnd, $lparam)
+                
+                if ([WindowInfo]::IsWindowVisible($hwnd)) {
+                    $title = [WindowInfo]::GetWindowTitle($hwnd);
+                    $class = [WindowInfo]::GetWindowClass($hwnd);
+                    
+                    if ($title -match 'Paint' -or $class -match 'MSPaintApp|Afx:1000000:8') {
+                        # Exclude our own server window
+                        if (-not ($title -match 'mcp-server-microsoft-paint')) {
+                            $paintWindows += New-Object PSObject -Property @{
+                                Handle = $hwnd.ToInt32()
+                                Title = $title
+                                Class = $class
+                            }
+                        }
+                    }
+                }
+                
+                return $true;
+            }, 
+            [IntPtr]::Zero
+        ) | Out-Null;
+        
+        # Output the windows in JSON format
+        $paintWindows | ConvertTo-Json;
+    "#;
+    
+    // Execute the PowerShell command
+    let output = std::process::Command::new("powershell")
+        .args(["-Command", ps_command])
+        .output()
+        .map_err(|e| MspMcpError::WindowsApiError(format!("Failed to execute PowerShell command: {}", e)))?;
+    
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        return Err(MspMcpError::WindowsApiError(format!("PowerShell command failed: {}", error)));
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    info!("PowerShell output: {}", output_str);
+    
+    // Parse the JSON output
+    if output_str.contains("Handle") {
+        // Simple parsing to extract handle - in a real implementation we'd use serde_json
+        let handle_start = output_str.find("Handle") 
+            .and_then(|pos| output_str[pos..].find(':'))
+            .map(|rel_pos| output_str.find("Handle").unwrap() + rel_pos + 1);
+        
+        if let Some(start) = handle_start {
+            let end = start + output_str[start..].find(',').unwrap_or_else(|| output_str[start..].find('}').unwrap_or(10));
+            let handle_str = output_str[start..end].trim();
+            
+            if let Ok(handle) = handle_str.parse::<HWND>() {
+                info!("Found Paint window with PowerShell: HWND={}", handle);
+                return Ok(handle);
+            }
+        }
+    }
+    
+    // If PowerShell approach fails, try a fallback using FindWindow
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
+        
+        // First try with MSPaintApp class
+        let class_name: Vec<u16> = OsStr::new("MSPaintApp").encode_wide().chain(Some(0)).collect();
+        let mut handle = FindWindowW(class_name.as_ptr(), std::ptr::null());
+        
+        if handle == 0 {
+            // Try with broader search (with title containing Paint)
+            handle = FindWindowW(std::ptr::null(), std::ptr::null());
+        }
+        
+        if handle != 0 {
+            info!("Found Paint window with FindWindow: HWND={}", handle);
+            return Ok(handle);
+        }
+    }
+    
+    Err(MspMcpError::WindowNotFound)
 }
 
 // TODO: Add tests for tool selection and color management functions 
