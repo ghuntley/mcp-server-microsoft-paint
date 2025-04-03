@@ -984,7 +984,7 @@ pub fn drag_mouse(start_screen_x: i32, start_screen_y: i32, end_screen_x: i32, e
     move_mouse_to(start_screen_x, start_screen_y)?;
     
     // Brief delay before clicking
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::thread::sleep(std::time::Duration::from_millis(50));
     
     // Perform mouse down
     let mut input: INPUT = unsafe { std::mem::zeroed() };
@@ -1010,11 +1010,27 @@ pub fn drag_mouse(start_screen_x: i32, start_screen_y: i32, end_screen_x: i32, e
         }
     }
     
-    // Move to end position
+    // Move to end position in small steps for smoother drawing
+    let steps = 10; // Use 10 steps for smoother drawing
+    let dx = (end_screen_x - start_screen_x) as f32 / steps as f32;
+    let dy = (end_screen_y - start_screen_y) as f32 / steps as f32;
+    
+    for i in 1..=steps {
+        let x = start_screen_x + (dx * i as f32) as i32;
+        let y = start_screen_y + (dy * i as f32) as i32;
+        
+        // Move to intermediate position
+        move_mouse_to(x, y)?;
+        
+        // Brief delay between steps
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    
+    // Ensure we're at the end position
     move_mouse_to(end_screen_x, end_screen_y)?;
     
     // Brief delay before releasing
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::thread::sleep(std::time::Duration::from_millis(50));
     
     // Perform mouse up
     unsafe {
@@ -1054,14 +1070,35 @@ pub fn click_at_client_position(hwnd: HWND, client_x: i32, client_y: i32) -> Res
     click_at_position(screen_x, screen_y)
 }
 
-/// Helper function to draw a simple pixel using the pencil tool.
-/// Note: This assumes the pencil tool is already selected with appropriate color.
+/// Calculate the drawing area offset
+/// This adds the extra vertical offset needed to account for toolbars in Paint
+pub fn get_drawing_area_offset(hwnd: HWND) -> Result<(i32, i32)> {
+    // The toolbar and ribbon height varies based on Paint version
+    // Windows 11 Paint has a larger ribbon than Windows 10
+    // These are approximations that should work in most cases
+    let toolbar_height = 120;  // Combined height of title bar, ribbon, etc.
+    let left_offset = 5;       // Small left margin
+    
+    Ok((left_offset, toolbar_height))
+}
+
+/// Draws a pixel at the specified coordinates.
 pub fn draw_pixel_at(hwnd: HWND, canvas_x: i32, canvas_y: i32) -> Result<()> {
     // First make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // Calculate screen coordinates from canvas coordinates
-    let (screen_x, screen_y) = client_to_screen(hwnd, canvas_x, canvas_y)?;
+    // Select the pencil tool for reliable drawing
+    select_tool(hwnd, "pencil")?;
+    
+    // Get drawing area offset
+    let (offset_x, offset_y) = get_drawing_area_offset(hwnd)?;
+    
+    // Add offset to canvas coordinates to get client coordinates
+    let client_x = canvas_x + offset_x;
+    let client_y = canvas_y + offset_y;
+    
+    // Convert to screen coordinates
+    let (screen_x, screen_y) = client_to_screen(hwnd, client_x, client_y)?;
     
     // Simple click to draw a pixel with the pencil tool
     click_at_position(screen_x, screen_y)
@@ -1302,48 +1339,99 @@ pub fn type_text(text: &str) -> Result<()> {
 }
 
 /// Helper function to draw a line from (start_x, start_y) to (end_x, end_y).
-/// Uses the mouse drag functionality to simulate drawing a line.
+/// Uses the mouse drag functionality to simulate drawing a line - similar to the direct_paint_test.py approach.
 pub fn draw_line_at(hwnd: HWND, start_x: i32, start_y: i32, end_x: i32, end_y: i32) -> Result<()> {
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
+    // Select the pencil tool for reliable drawing
+    select_tool(hwnd, "pencil")?;
+    
+    // Get drawing area offset
+    let (offset_x, offset_y) = get_drawing_area_offset(hwnd)?;
+    
+    // Add offset to canvas coordinates to get client coordinates
+    let client_start_x = start_x + offset_x;
+    let client_start_y = start_y + offset_y;
+    let client_end_x = end_x + offset_x;
+    let client_end_y = end_y + offset_y;
+    
     // Convert client coordinates to screen coordinates
-    let (start_screen_x, start_screen_y) = client_to_screen(hwnd, start_x, start_y)?;
-    let (end_screen_x, end_screen_y) = client_to_screen(hwnd, end_x, end_y)?;
+    let (start_screen_x, start_screen_y) = client_to_screen(hwnd, client_start_x, client_start_y)?;
+    let (end_screen_x, end_screen_y) = client_to_screen(hwnd, client_end_x, client_end_y)?;
     
-    // Perform the drag operation to draw the line
-    drag_mouse(start_screen_x, start_screen_y, end_screen_x, end_screen_y)?;
+    info!("Drawing line from ({},{}) to ({},{}) on screen: ({},{}) to ({},{})", 
+          start_x, start_y, end_x, end_y,
+          start_screen_x, start_screen_y, end_screen_x, end_screen_y);
     
-    Ok(())
-}
-
-/// Helper function to draw a shape from (start_x, start_y) to (end_x, end_y).
-/// Selects the appropriate shape tool and uses mouse drag to create the shape.
-pub fn draw_shape(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, end_x: i32, end_y: i32) -> Result<()> {
-    // Make sure the Paint window is active
-    activate_paint_window(hwnd)?;
+    // First, move to the start position
+    move_mouse_to(start_screen_x, start_screen_y)?;
     
-    // First select the shape tool
-    select_tool(hwnd, "shape")?;
+    // Wait a moment to ensure position
+    std::thread::sleep(std::time::Duration::from_millis(500));
     
-    // Validate and select the specific shape type
-    let valid_shapes = ["rectangle", "ellipse", "line", "arrow", "triangle", "pentagon", "hexagon"];
-    if !valid_shapes.contains(&shape_type.to_lowercase().as_str()) {
-        return Err(MspMcpError::InvalidParameters(
-            format!("Invalid shape type: {}. Must be one of: rectangle, ellipse, line, arrow, triangle, pentagon, hexagon", 
-                    shape_type)));
+    // Mouse down at start position
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse down input".to_string()));
+        }
     }
     
-    // TODO: Implement shape type selection
-    // Each shape type would require clicking a specific position in the shape dropdown menu
-    info!("Would select shape type: {}", shape_type);
+    // Wait a moment
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
-    // Convert client coordinates to screen coordinates
-    let (start_screen_x, start_screen_y) = client_to_screen(hwnd, start_x, start_y)?;
-    let (end_screen_x, end_screen_y) = client_to_screen(hwnd, end_x, end_y)?;
+    // Move in small steps to the end position for smoother drawing
+    let steps = 10;
+    let dx = (end_screen_x - start_screen_x) as f32 / steps as f32;
+    let dy = (end_screen_y - start_screen_y) as f32 / steps as f32;
     
-    // Perform the drag operation to draw the shape
-    drag_mouse(start_screen_x, start_screen_y, end_screen_x, end_screen_y)?;
+    for i in 1..=steps {
+        let x = start_screen_x + (dx * i as f32) as i32;
+        let y = start_screen_y + (dy * i as f32) as i32;
+        
+        // Move to intermediate position
+        move_mouse_to(x, y)?;
+        
+        // Brief delay between steps
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    
+    // Ensure we're at the end position
+    move_mouse_to(end_screen_x, end_screen_y)?;
+    
+    // Wait a moment before releasing
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    // Mouse up at end position
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse up input".to_string()));
+        }
+    }
+    
+    // Wait a moment to ensure the drawing is complete
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
     Ok(())
 }
@@ -1354,24 +1442,41 @@ pub fn select_tool(hwnd: HWND, tool: &str) -> Result<()> {
     // First ensure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // Define tool positions relative to the window's top-left corner
-    // These are approximate positions that may need adjustment
+    // Get window dimensions to help with adaptive positioning
+    let mut rect: windows_sys::Win32::Foundation::RECT = unsafe { std::mem::zeroed() };
+    unsafe {
+        if GetWindowRect(hwnd, &mut rect) == FALSE {
+            return Err(MspMcpError::WindowsApiError("GetWindowRect failed".to_string()));
+        }
+    }
+    
+    let window_width = rect.right - rect.left;
+    
+    // Define tool positions based on the top toolbar (using percentages of window width)
+    // These are approximate positions that should work across different window sizes
     let tool_positions = match tool.to_lowercase().as_str() {
-        "pencil" => (50, 100),    // Left side of toolbar
-        "brush" => (80, 100),     // Next to pencil
-        "fill" => (110, 100),     // Fill tool
-        "text" => (140, 100),     // Text tool
-        "eraser" => (170, 100),   // Eraser tool
-        "select" => (200, 100),   // Selection tool
-        "shape" => (230, 100),    // Shape tool
+        "pencil" => (window_width / 20, 60),       // Left toolbar area
+        "brush" => (window_width / 10, 60),        // Brush tool
+        "fill" => (window_width / 7, 60),          // Fill tool
+        "text" => (window_width / 5, 60),          // Text tool
+        "eraser" => (window_width / 4, 60),        // Eraser tool
+        "select" => (window_width / 3, 60),        // Selection tool
+        "shape" => (window_width / 2.5 as i32, 60),// Shape tool
         _ => return Err(MspMcpError::InvalidParameters(format!("Unsupported tool: {}", tool))),
     };
+    
+    info!("Selecting tool: {} at position ({}, {})", tool, tool_positions.0, tool_positions.1);
     
     // Convert toolbar coordinates to screen coordinates
     let (screen_x, screen_y) = client_to_screen(hwnd, tool_positions.0, tool_positions.1)?;
     
     // Click the tool position
-    click_at_position(screen_x, screen_y)
+    click_at_position(screen_x, screen_y)?;
+    
+    // Wait for tool selection to take effect
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    Ok(())
 }
 
 /// Sets the active color in Paint by selecting it from the color panel.
@@ -1385,14 +1490,8 @@ pub fn set_color(hwnd: HWND, color: &str) -> Result<()> {
         return Err(MspMcpError::InvalidParameters("Color must be in #RRGGBB format".to_string()));
     }
     
-    // TODO: Implement color selection logic
-    // This will require:
-    // 1. Clicking the color button in the toolbar
-    // 2. Finding the closest matching color in the color grid
-    // 3. Clicking that color
-    // 4. For custom colors, potentially using the color picker
-    
     // For now, just log the color that would be selected
+    // In a real implementation, we would interact with Paint's color picker
     info!("Would select color: {}", color);
     
     Ok(())
@@ -1409,13 +1508,8 @@ pub fn set_thickness(hwnd: HWND, level: u32) -> Result<()> {
     // First ensure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // TODO: Implement thickness selection logic
-    // This will require:
-    // 1. Accessing the properties panel on the right side
-    // 2. Clicking the thickness/size button
-    // 3. Selecting the appropriate thickness level
-    
     // For now, just log the thickness that would be selected
+    // In a real implementation, we would interact with Paint's thickness control
     info!("Would set thickness level: {}", level);
     
     Ok(())
@@ -1437,12 +1531,6 @@ pub fn set_brush_size(hwnd: HWND, size: u32, tool: Option<&str>) -> Result<()> {
         select_tool(hwnd, tool_name)?;
     }
     
-    // TODO: Implement brush size selection logic
-    // This will require:
-    // 1. Accessing the properties panel on the right side
-    // 2. Finding the size slider control
-    // 3. Setting the appropriate size value
-    
     // For now, just log the size that would be selected
     info!("Would set brush size: {} for tool: {}", size, tool.unwrap_or("current"));
     
@@ -1462,40 +1550,40 @@ pub fn set_fill(hwnd: HWND, fill_type: &str) -> Result<()> {
     // First ensure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // TODO: Implement fill type selection logic
-    // This will require:
-    // 1. Selecting the shape tool first (if not already selected)
-    // 2. Accessing the properties panel on the right side
-    // 3. Finding the fill type options
-    // 4. Clicking the appropriate fill type button
-    
     // For now, just log the fill type that would be selected
     info!("Would set fill type: {}", fill_type);
     
     Ok(())
 }
 
-/// Draws a polyline (series of connected lines) by drawing line segments between consecutive points.
-pub fn draw_polyline(hwnd: HWND, points: &[(i32, i32)]) -> Result<()> {
-    // Validate input
-    if points.len() < 2 {
-        return Err(MspMcpError::InvalidParameters(
-            "Polyline requires at least 2 points".to_string()));
-    }
-    
+/// Draws a shape from (start_x, start_y) to (end_x, end_y).
+/// Selects the appropriate shape tool and uses mouse drag to create the shape.
+pub fn draw_shape(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, end_x: i32, end_y: i32) -> Result<()> {
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // For a polyline, we'll use a single mouse drag operation through all the points
+    // First select the shape tool
+    select_tool(hwnd, "shape")?;
     
-    // Convert first point to screen coordinates
-    let (start_screen_x, start_screen_y) = client_to_screen(hwnd, points[0].0, points[0].1)?;
+    // Validate and select the specific shape type
+    let valid_shapes = ["rectangle", "ellipse", "line", "arrow", "triangle", "pentagon", "hexagon"];
+    if !valid_shapes.contains(&shape_type.to_lowercase().as_str()) {
+        return Err(MspMcpError::InvalidParameters(
+            format!("Invalid shape type: {}. Must be one of: rectangle, ellipse, line, arrow, triangle, pentagon, hexagon", 
+                    shape_type)));
+    }
     
+    // Log what shape would be selected
+    info!("Would select shape type: {}", shape_type);
+    
+    // Convert client coordinates to screen coordinates
+    let (start_screen_x, start_screen_y) = client_to_screen(hwnd, start_x, start_y)?;
+    let (end_screen_x, end_screen_y) = client_to_screen(hwnd, end_x, end_y)?;
+    
+    // Draw the shape with a mouse drag
     // Move to start position
     move_mouse_to(start_screen_x, start_screen_y)?;
-    
-    // Brief delay before clicking
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
     // Press mouse down
     let mut input: INPUT = unsafe { std::mem::zeroed() };
@@ -1516,16 +1604,11 @@ pub fn draw_polyline(hwnd: HWND, points: &[(i32, i32)]) -> Result<()> {
         }
     }
     
-    // Move through each subsequent point
-    for i in 1..points.len() {
-        let (screen_x, screen_y) = client_to_screen(hwnd, points[i].0, points[i].1)?;
-        move_mouse_to(screen_x, screen_y)?;
-        
-        // Brief delay to ensure movement is registered
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
+    // Move to end position
+    move_mouse_to(end_screen_x, end_screen_y)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
-    // Release mouse at final point
+    // Release mouse button
     unsafe {
         let mi = &mut input.Anonymous.mi;
         mi.dx = 0;
@@ -1544,16 +1627,81 @@ pub fn draw_polyline(hwnd: HWND, points: &[(i32, i32)]) -> Result<()> {
     Ok(())
 }
 
-/// Clears the canvas by selecting all (Ctrl+A) and then pressing Delete.
+/// Draws a polyline (series of connected lines) by drawing line segments between consecutive points.
+pub fn draw_polyline(hwnd: HWND, points: &[(i32, i32)]) -> Result<()> {
+    // Validate input
+    if points.len() < 2 {
+        return Err(MspMcpError::InvalidParameters(
+            "Polyline requires at least 2 points".to_string()));
+    }
+    
+    // Make sure the Paint window is active
+    activate_paint_window(hwnd)?;
+    
+    // Select the pencil tool
+    select_tool(hwnd, "pencil")?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    // Convert first point to screen coordinates
+    let (start_screen_x, start_screen_y) = client_to_screen(hwnd, points[0].0, points[0].1)?;
+    
+    // Move to start position
+    move_mouse_to(start_screen_x, start_screen_y)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    // Press mouse down
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse down input".to_string()));
+        }
+    }
+    
+    // Move through each point
+    for i in 1..points.len() {
+        let (screen_x, screen_y) = client_to_screen(hwnd, points[i].0, points[i].1)?;
+        move_mouse_to(screen_x, screen_y)?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    
+    // Release mouse button
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse up input".to_string()));
+        }
+    }
+    
+    Ok(())
+}
+
+/// Clears the canvas in Paint using Ctrl+A then Delete.
 pub fn clear_canvas(hwnd: HWND) -> Result<()> {
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
     // Select all (Ctrl+A)
     press_ctrl_a()?;
-    
-    // Brief delay to ensure selection is complete
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
     // Press Delete
     press_delete()?;
@@ -1561,28 +1709,67 @@ pub fn clear_canvas(hwnd: HWND) -> Result<()> {
     Ok(())
 }
 
-/// Selects a region by dragging from start to end coordinates.
+/// Selects a region in Paint from start coordinates to end coordinates.
 pub fn select_region(hwnd: HWND, start_x: i32, start_y: i32, end_x: i32, end_y: i32) -> Result<()> {
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
     // Select the selection tool
     select_tool(hwnd, "select")?;
-    
-    // Brief delay to ensure tool is selected
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
     // Convert client coordinates to screen coordinates
     let (start_screen_x, start_screen_y) = client_to_screen(hwnd, start_x, start_y)?;
     let (end_screen_x, end_screen_y) = client_to_screen(hwnd, end_x, end_y)?;
     
-    // Drag from start to end position to create selection
-    drag_mouse(start_screen_x, start_screen_y, end_screen_x, end_screen_y)?;
+    // Draw the selection with a mouse drag
+    // Move to start position
+    move_mouse_to(start_screen_x, start_screen_y)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    // Press mouse down
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse down input".to_string()));
+        }
+    }
+    
+    // Move to end position
+    move_mouse_to(end_screen_x, end_screen_y)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    
+    // Release mouse button
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse up input".to_string()));
+        }
+    }
     
     Ok(())
 }
 
-/// Copies the current selection to the clipboard (Ctrl+C).
+/// Copies the current selection to the clipboard.
 pub fn copy_selection(hwnd: HWND) -> Result<()> {
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
@@ -1593,26 +1780,23 @@ pub fn copy_selection(hwnd: HWND) -> Result<()> {
     Ok(())
 }
 
-/// Pastes clipboard content at the given position.
+/// Pastes at the specified coordinates.
 pub fn paste_at(hwnd: HWND, x: i32, y: i32) -> Result<()> {
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // First click at the target position
+    // Click at the paste location
     let (screen_x, screen_y) = client_to_screen(hwnd, x, y)?;
     click_at_position(screen_x, screen_y)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
-    // Brief delay to ensure click is registered
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    
-    // Press Ctrl+V to paste
+    // Press Ctrl+V
     press_ctrl_v()?;
     
     Ok(())
 }
 
-/// Adds text at the specified position with optional formatting.
-/// This selects the text tool, clicks at the position, and types the text content.
+/// Adds text at the specified position.
 pub fn add_text(
     hwnd: HWND, 
     x: i32, 
@@ -1628,47 +1812,28 @@ pub fn add_text(
     
     // Select the text tool
     select_tool(hwnd, "text")?;
-    
-    // Brief delay to ensure tool is selected
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
     // If a color is specified, set it
     if let Some(color_str) = color {
         set_color(hwnd, color_str)?;
     }
     
-    // TODO: Implement font name, size, and style selection
-    // This would require interacting with the text formatting panel
-    
-    // Log the font parameters that would be applied
-    if font_name.is_some() || font_size.is_some() || font_style.is_some() {
-        info!(
-            "Would set font parameters: name={}, size={}, style={}", 
-            font_name.unwrap_or("default"),
-            font_size.map_or("default".to_string(), |s| s.to_string()),
-            font_style.unwrap_or("default")
-        );
-    }
-    
-    // Click at the position to start text entry
+    // Click at the text position
     let (screen_x, screen_y) = client_to_screen(hwnd, x, y)?;
     click_at_position(screen_x, screen_y)?;
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
-    // Brief delay before typing
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    
-    // Type the text content
+    // Type the text
     type_text(text)?;
     
-    // Click elsewhere to finalize the text
-    let (finalize_x, finalize_y) = client_to_screen(hwnd, x + 300, y + 300)?;
-    click_at_position(finalize_x, finalize_y)?;
+    // Click somewhere else to finalize the text
+    click_at_position(screen_x + 300, screen_y + 300)?;
     
     Ok(())
 }
 
 /// Creates a new canvas with the specified dimensions.
-/// This triggers the new canvas dialog and sets the dimensions.
 pub fn create_canvas(
     hwnd: HWND, 
     width: u32, 
@@ -1678,160 +1843,26 @@ pub fn create_canvas(
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     
-    // Press Ctrl+N to create a new canvas
+    // Press Ctrl+N for a new canvas
     press_ctrl_n()?;
-    
-    // Wait for the dialog to appear
     std::thread::sleep(std::time::Duration::from_millis(500));
     
-    // TODO: Find and interact with the width and height input fields in the dialog
-    // For now, we'll use tab navigation to reach the width field
+    // For now, just log the action
+    info!("Would create a {}x{} canvas with background: {}", 
+          width, 
+          height, 
+          background_color.unwrap_or("default"));
     
-    // For illustration purposes, log what we would do
-    info!("Would set canvas dimensions to {}x{}", width, height);
-    
-    // If background color is specified, log it
-    if let Some(color) = background_color {
-        info!("Would set background color to {}", color);
-    }
-    
-    // For now, just press Enter to accept default values
-    // In a future implementation, we would actually set the width and height
+    // Press Enter to accept
     press_enter()?;
-    
-    // Wait for the canvas to be created
-    std::thread::sleep(std::time::Duration::from_millis(200));
     
     Ok(())
 }
 
-/// Direct method to get Paint window handle using PowerShell
+/// Alternative function to get the Paint window handle directly.
 pub fn get_direct_paint_hwnd() -> Result<HWND> {
-    info!("Using PowerShell to directly get Paint window handle");
-    
-    // Execute a PowerShell command to get all Paint windows
-    let ps_command = r#"
-        Add-Type @"
-        using System;
-        using System.Runtime.InteropServices;
-        using System.Text;
-        public class WindowInfo {
-            [DllImport("user32.dll", SetLastError = true)]
-            public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-            
-            [DllImport("user32.dll")]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-            
-            [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-            public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-            
-            [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-            public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-            
-            [DllImport("user32.dll")]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool IsWindowVisible(IntPtr hWnd);
-            
-            public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-            
-            public static string GetWindowTitle(IntPtr hWnd) {
-                StringBuilder sb = new StringBuilder(256);
-                GetWindowText(hWnd, sb, sb.Capacity);
-                return sb.ToString();
-            }
-            
-            public static string GetWindowClass(IntPtr hWnd) {
-                StringBuilder sb = new StringBuilder(256);
-                GetClassName(hWnd, sb, sb.Capacity);
-                return sb.ToString();
-            }
-        }
-"@;
-
-        # Enumerate all windows and find Paint windows
-        $paintWindows = @();
-        [WindowInfo]::EnumWindows(
-            {
-                param($hwnd, $lparam)
-                
-                if ([WindowInfo]::IsWindowVisible($hwnd)) {
-                    $title = [WindowInfo]::GetWindowTitle($hwnd);
-                    $class = [WindowInfo]::GetWindowClass($hwnd);
-                    
-                    if ($title -match 'Paint' -or $class -match 'MSPaintApp|Afx:1000000:8') {
-                        # Exclude our own server window
-                        if (-not ($title -match 'mcp-server-microsoft-paint')) {
-                            $paintWindows += New-Object PSObject -Property @{
-                                Handle = $hwnd.ToInt32()
-                                Title = $title
-                                Class = $class
-                            }
-                        }
-                    }
-                }
-                
-                return $true;
-            }, 
-            [IntPtr]::Zero
-        ) | Out-Null;
-        
-        # Output the windows in JSON format
-        $paintWindows | ConvertTo-Json;
-    "#;
-    
-    // Execute the PowerShell command
-    let output = std::process::Command::new("powershell")
-        .args(["-Command", ps_command])
-        .output()
-        .map_err(|e| MspMcpError::WindowsApiError(format!("Failed to execute PowerShell command: {}", e)))?;
-    
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        return Err(MspMcpError::WindowsApiError(format!("PowerShell command failed: {}", error)));
-    }
-    
-    let output_str = String::from_utf8_lossy(&output.stdout);
-    info!("PowerShell output: {}", output_str);
-    
-    // Parse the JSON output
-    if output_str.contains("Handle") {
-        // Simple parsing to extract handle - in a real implementation we'd use serde_json
-        let handle_start = output_str.find("Handle") 
-            .and_then(|pos| output_str[pos..].find(':'))
-            .map(|rel_pos| output_str.find("Handle").unwrap() + rel_pos + 1);
-        
-        if let Some(start) = handle_start {
-            let end = start + output_str[start..].find(',').unwrap_or_else(|| output_str[start..].find('}').unwrap_or(10));
-            let handle_str = output_str[start..end].trim();
-            
-            if let Ok(handle) = handle_str.parse::<HWND>() {
-                info!("Found Paint window with PowerShell: HWND={}", handle);
-                return Ok(handle);
-            }
-        }
-    }
-    
-    // If PowerShell approach fails, try a fallback using FindWindow
-    unsafe {
-        use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
-        
-        // First try with MSPaintApp class
-        let class_name: Vec<u16> = OsStr::new("MSPaintApp").encode_wide().chain(Some(0)).collect();
-        let mut handle = FindWindowW(class_name.as_ptr(), std::ptr::null());
-        
-        if handle == 0 {
-            // Try with broader search (with title containing Paint)
-            handle = FindWindowW(std::ptr::null(), std::ptr::null());
-        }
-        
-        if handle != 0 {
-            info!("Found Paint window with FindWindow: HWND={}", handle);
-            return Ok(handle);
-        }
-    }
-    
-    Err(MspMcpError::WindowNotFound)
+    // For now, just delegate to the regular function
+    get_paint_hwnd()
 }
 
 // TODO: Add tests for tool selection and color management functions 

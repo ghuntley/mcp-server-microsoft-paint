@@ -39,11 +39,14 @@ pub async fn handle_connect(
     let (width, height) = get_initial_canvas_dimensions(hwnd)?;
 
     // Create and return the response
-    Ok(json!(ConnectResponse {
-        status: "success".to_string(),
-        paint_version: "windows11".to_string(), // Assuming Win11 for now
-        canvas_width: width,
-        canvas_height: height,
+    Ok(json!({
+        "jsonrpc": "2.0",
+        "id": 1, // Should be extracted from the request
+        "result": {
+            "paint_version": "windows11", // Assuming Win11 for now
+            "canvas_width": width,
+            "canvas_height": height
+        }
     }))
 }
 
@@ -105,9 +108,12 @@ pub async fn handle_get_canvas_dimensions(
 
     // Return dimensions in response
     Ok(json!({
-        "status": "success",
-        "width": width,
-        "height": height
+        "jsonrpc": "2.0",
+        "id": 1, // Should be extracted from the request
+        "result": {
+            "width": width,
+            "height": height
+        }
     }))
 }
 
@@ -142,10 +148,13 @@ pub async fn handle_get_version(
 
     // Return version information
     Ok(json!({
-        "status": "success",
-        "protocol_version": "1.1",
-        "server_version": env!("CARGO_PKG_VERSION"),
-        "paint_version": "windows11"
+        "jsonrpc": "2.0",
+        "id": 1, // Should be extracted from the request
+        "result": {
+            "protocol_version": "1.1",
+            "server_version": env!("CARGO_PKG_VERSION"),
+            "paint_version": "windows11"
+        }
     }))
 }
 
@@ -168,34 +177,17 @@ pub async fn handle_draw_pixel(
         
         match *hwnd_state {
             Some(hwnd) => hwnd,
-            // Use specific error code if window not found (though should be handled by initialize)
-            None => return Err(MspMcpError::WindowNotFound), 
+            None => return Err(MspMcpError::WindowNotFound),
         }
     };
 
-    // --- Start: Added Tool/Color Selection ---
-    // Ensure pencil tool is selected
-    info!("Selecting pencil tool for draw_pixel...");
-    windows::select_tool(hwnd, "pencil")?;
-    // Brief delay after selecting tool
-    tokio::time::sleep(time::Duration::from_millis(50)).await;
-
-    // If a color is specified, select that color 
+    // If a color is specified, set it first
     if let Some(color) = &draw_params.color {
-        info!("Setting color to {} for draw_pixel...", color);
         windows::set_color(hwnd, color)?;
-        // Brief delay after setting color
-        tokio::time::sleep(time::Duration::from_millis(50)).await;
-    } else {
-        // Optional: Default to black if no color specified?
-        info!("No color specified for draw_pixel, using current Paint color.");
     }
-    // --- End: Added Tool/Color Selection ---
 
     // Draw the pixel at the specified coordinates
-    info!("Attempting to draw pixel at ({}, {})", draw_params.x, draw_params.y);
     draw_pixel_at(hwnd, draw_params.x, draw_params.y)?;
-    info!("Pixel draw command sent.");
 
     // Return success response
     Ok(success_response())
@@ -224,18 +216,14 @@ pub async fn handle_draw_line(
         }
     };
 
-    // TODO: If a color is specified, we should select that color first
+    // If a color is specified, set it first
     if let Some(color) = &draw_params.color {
-        // Placeholder for color selection
-        info!("Would select color: {}", color);
-        // windows::select_color(hwnd, color)?;
+        windows::set_color(hwnd, color)?;
     }
 
-    // TODO: If thickness is specified, we should set the thickness
+    // If thickness is specified, set it
     if let Some(thickness) = draw_params.thickness {
-        // Placeholder for thickness selection
-        info!("Would set thickness: {}", thickness);
-        // windows::set_thickness(hwnd, thickness)?;
+        windows::set_thickness(hwnd, thickness)?;
     }
 
     // Draw the line at the specified coordinates
@@ -707,111 +695,36 @@ pub async fn handle_create_canvas(
 // Handler for the 'initialize' method
 pub async fn handle_initialize(
     state: PaintServerState,
-    _params: Option<Value>,
+    _params: Option<Value>, // No parameters needed for initialization
 ) -> Result<Value> {
-    info!("Server received initialize request. Finding/Launching Paint...");
-
-    // Diagnostic: Before attempting to find Paint window
-    let _ = std::process::Command::new("powershell")
-        .args(["-Command", "Write-Host 'Diagnostic: Process list before Paint detection';", "Get-Process | Where-Object { $_.ProcessName -like '*paint*' } | Format-Table -Property Id,ProcessName,MainWindowTitle"])
-        .status();
-
-    // First check if mspaint.exe is already running
-    let _ = std::process::Command::new("tasklist")
-        .args(["/FI", "IMAGENAME eq mspaint.exe", "/FO", "LIST"])
-        .status();
+    info!("Handling initialize request...");
     
-    // Try to find a Paint window using all available methods
-    let paint_hwnd = match windows::get_direct_paint_hwnd() {
-        Ok(hwnd) => {
-            info!("Found Paint window directly: HWND={}", hwnd);
-            hwnd
-        },
-        Err(_) => {
-            // Direct method failed, try the previous methods
-            match windows::get_paint_hwnd() {
-                Ok(hwnd) => {
-                    info!("Found Paint window using traditional method: HWND={}", hwnd);
-                    hwnd
-                },
-                Err(e) => {
-                    // All methods failed, launch Paint and retry
-                    warn!("All Paint window detection methods failed: {}. Launching Paint...", e);
-                    
-                    // Try direct launch with PowerShell for elevated privileges
-                    let ps_result = std::process::Command::new("powershell")
-                        .args(["-Command", "Start-Process mspaint.exe -WindowStyle Normal"])
-                        .status();
-                        
-                    match ps_result {
-                        Ok(_) => {
-                            info!("Launched Paint using PowerShell");
-                            // Wait for Paint to start
-                            tokio::time::sleep(time::Duration::from_millis(3000)).await;
-                            
-                            // Try direct detection again
-                            match windows::get_direct_paint_hwnd() {
-                                Ok(hwnd) => {
-                                    info!("Found Paint window after PowerShell launch: HWND={}", hwnd);
-                                    hwnd
-                                },
-                                Err(e) => {
-                                    error!("Failed to find Paint window even after PowerShell launch: {}", e);
-                                    return Err(MspMcpError::WindowNotFound);
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            error!("Failed to launch Paint using PowerShell: {}", e);
-                            return Err(MspMcpError::WindowsApiError(format!("Failed to launch Paint: {}", e)));
-                        }
-                    }
-                }
-            }
-        }
-    };
-
-    // Try to activate the window using our robust activation method
-    match windows::activate_paint_window(paint_hwnd) {
-        Ok(_) => {
-            info!("Successfully activated Paint window");
+    // Find or launch Paint
+    let hwnd = match windows::get_paint_hwnd() {
+        Ok(h) => {
+            info!("Found or launched Paint window: HWND={}", h);
+            h
         },
         Err(e) => {
-            warn!("Found Paint window but failed to activate it: {}. Will try to use it anyway.", e);
+            error!("Failed to find or launch Paint: {}", e);
+            return Err(e);
         }
-    }
-
+    };
+    
     // Store HWND in state
     {
         let mut hwnd_state = state.paint_hwnd.lock().map_err(|_| 
             MspMcpError::General("Failed to lock HWND state".to_string()))?;
-        *hwnd_state = Some(paint_hwnd);
-        info!("Stored Paint HWND in state: {:?}", paint_hwnd);
+        *hwnd_state = Some(hwnd);
+        info!("Stored Paint HWND in server state");
     }
-
-    // Get initial canvas dimensions
-    let (width, height) = match windows::get_initial_canvas_dimensions(paint_hwnd) {
-        Ok(dims) => dims,
-        Err(e) => {
-            warn!("Failed to get canvas dimensions: {}. Using defaults.", e);
-            (800, 600) // Default dimensions as fallback
-        }
-    };
     
-    info!("Initial canvas dimensions: {}x{}", width, height);
-
-    // Return success with basic information
+    // Return success
     Ok(json!({
-        "status": "success",
-        "serverInfo": {
-            "name": "mcp-server-microsoft-paint",
-            "version": env!("CARGO_PKG_VERSION")
-        },
-        "capabilities": {
-            "windowManagement": true,
-            "drawingTools": true,
-            "textTools": true,
-            "selectionTools": true
+        "jsonrpc": "2.0",
+        "id": 1, // Should be overridden with actual request ID later
+        "result": {
+            "initialized": true
         }
     }))
 }

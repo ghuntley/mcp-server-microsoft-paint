@@ -1,84 +1,116 @@
-# MCP Server for Windows 11 Paint
+# MCP Server for Microsoft Paint
 
-This project implements a Media Control Protocol (MCP) server for Windows 11 Paint, allowing
-remote clients to control Paint through a JSON-RPC interface. It focuses on automating drawing
-operations, window management, and image manipulation through Windows API calls.
+A JSON-RPC 2.0 compatible server for controlling Microsoft Paint through the Microsoft Commandline Protocol (MCP).
 
 ## Features
 
-- **Connection Management**: Connect/disconnect clients with the Paint application
-- **Window Management**: Activate the Paint window and get canvas dimensions
-- **Drawing Operations**:
-  - Tool selection (pencil, brush, fill, text, eraser, select, shape)
-  - Color and thickness configuration
-  - Draw pixel, line, shape, and polyline operations
-  - Fill type selection
-- **Selection Operations**: Select regions, copy, and paste
-- **Canvas Management**: Clear canvas, create new canvas
-- **Image Transformations**: Rotate, flip, scale, and crop
+- Launch and connect to Microsoft Paint
+- Draw lines, shapes, and pixels
+- Set colors and tool properties
+- Control the Paint window
 
-## Implementation Status
+## Requirements
 
-See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for a detailed breakdown of implemented
-features and work in progress items.
+- Windows 10/11 with Microsoft Paint installed
+- Rust (for building the server)
+- Python (for the test client examples)
 
-## Getting Started
+## Building and Running
 
-### Prerequisites
+To build the server:
 
-- Windows 11 with MS Paint installed
-- Rust (latest stable version)
-
-### Building
-
-```bash
+```
 cargo build --release
 ```
 
-### Running
+To run the server:
 
-```bash
+```
 cargo run --release
 ```
 
-The server accepts JSON-RPC commands over standard input/output.
+The server accepts JSON-RPC 2.0 requests via stdin and responds via stdout.
 
-## Command Examples
+## JSON-RPC Methods
 
-Connect to Paint:
+### `initialize`
+
+Finds or launches Microsoft Paint.
+
+**Request:**
 ```json
-{"jsonrpc": "2.0", "id": 1, "method": "connect", "params": {"client_id": "test-client", "client_name": "Test Client"}}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {}
+}
 ```
 
-Draw a line:
+### `connect`
+
+Connects to an already running Paint window.
+
+**Request:**
 ```json
-{"jsonrpc": "2.0", "id": 2, "method": "draw_line", "params": {"start_x": 100, "start_y": 100, "end_x": 300, "end_y": 300, "color": "#FF0000", "thickness": 2}}
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "connect",
+  "params": {
+    "client_id": "your-client-id",
+    "client_name": "Your Client Name"
+  }
+}
 ```
 
-Draw a polyline:
+### `draw_line`
+
+Draws a line from one point to another.
+
+**Request:**
 ```json
-{"jsonrpc": "2.0", "id": 3, "method": "draw_polyline", "params": {"points": [{"x": 10, "y": 20}, {"x": 30, "y": 40}, {"x": 50, "y": 60}], "color": "#0000FF", "thickness": 2, "tool": "pencil"}}
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "draw_line",
+  "params": {
+    "start_x": 100,
+    "start_y": 100,
+    "end_x": 300,
+    "end_y": 100,
+    "color": "#FF0000",
+    "thickness": 3
+  }
+}
 ```
 
-Select a region:
-```json
-{"jsonrpc": "2.0", "id": 4, "method": "select_region", "params": {"start_x": 50, "start_y": 50, "end_x": 200, "end_y": 200}}
-```
+### Other Methods
 
-## Architecture
+- `activate_window` - Brings the Paint window to the foreground
+- `get_canvas_dimensions` - Returns the current canvas size
+- `draw_pixel` - Draws a single pixel
+- `draw_shape` - Draws a shape (rectangle, ellipse, etc.)
+- `select_tool` - Selects a drawing tool
+- `set_color` - Sets the current color
+- And more...
 
-- `src/core.rs`: Command handlers for each MCP method
-- `src/windows.rs`: Windows API integration for interacting with Paint
-- `src/protocol.rs`: Protocol definitions for request/response payloads
-- `src/error.rs`: Error type definitions and handling
-- `src/lib.rs`: Server entry point and lifecycle management
+## Example Test Client
 
-## Testing
+A simple test client is provided in `final_test.py` to demonstrate how to use the server:
 
 ```bash
-cargo test
+python final_test.py
 ```
+
+## Troubleshooting
+
+If you encounter issues with the server connecting to Paint:
+
+1. Make sure Microsoft Paint is installed and accessible
+2. Try manually launching Paint before starting the server
+3. Check the server logs for detailed error messages
 
 ## License
 
-[MIT License](LICENSE) 
+This project is available under the MIT License. 

@@ -1,0 +1,171 @@
+warning: output filename collision.
+The bin target `mcp-server-microsoft-paint` in package `mcp-server-microsoft-paint v0.1.0 (C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint)` has the same output filename as the lib target `mcp_server_microsoft_paint` in package `mcp-server-microsoft-paint v0.1.0 (C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint)`.
+Colliding filename is: C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint\target\release\deps\mcp_server_microsoft_paint.pdb
+The output filenames should be unique.
+Consider changing their names to be unique or compiling them separately.
+This may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>.
+If this looks unexpected, it may be a bug in Cargo. Please file a bug report at
+https://github.com/rust-lang/cargo/issues/ with as much information as you
+can provide.
+cargo 1.85.1 (d73d2caf9 2024-12-31) running on `x86_64-pc-windows-msvc` target `x86_64-pc-windows-msvc`
+First unit: Unit { pkg: Package { id: PackageId { name: "mcp-server-microsoft-paint", version: "0.1.0", source: "C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint" }, ..: ".." }, target: TargetInner { name: "mcp-server-microsoft-paint", doc: true, ..: with_path("C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint\\src\\main.rs", Edition2021) }, profile: Profile { strip: Resolved(Named("debuginfo")), ..: default_release() }, kind: Host, mode: Build, features: [], rustflags: [], rustdocflags: [], links_overrides: {}, artifact: false, artifact_target_for_features: None, is_std: false, dep_hash: 392317476812791307 }
+Second unit: Unit { pkg: Package { id: PackageId { name: "mcp-server-microsoft-paint", version: "0.1.0", source: "C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint" }, ..: ".." }, target: TargetInner { name_inferred: true, ..: lib_target("mcp_server_microsoft_paint", ["cdylib", "rlib"], "C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint\\src\\lib.rs", Edition2021) }, profile: Profile { strip: Resolved(Named("debuginfo")), ..: default_release() }, kind: Host, mode: Build, features: [], rustflags: [], rustdocflags: [], links_overrides: {}, artifact: false, artifact_target_for_features: None, is_std: false, dep_hash: 2017330607264117138 }
+warning: output filename collision.
+The bin target `mcp-server-microsoft-paint` in package `mcp-server-microsoft-paint v0.1.0 (C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint)` has the same output filename as the lib target `mcp_server_microsoft_paint` in package `mcp-server-microsoft-paint v0.1.0 (C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint)`.
+Colliding filename is: C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint\target\release\mcp_server_microsoft_paint.pdb
+The output filenames should be unique.
+Consider changing their names to be unique or compiling them separately.
+This may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>.
+If this looks unexpected, it may be a bug in Cargo. Please file a bug report at
+https://github.com/rust-lang/cargo/issues/ with as much information as you
+can provide.
+cargo 1.85.1 (d73d2caf9 2024-12-31) running on `x86_64-pc-windows-msvc` target `x86_64-pc-windows-msvc`
+First unit: Unit { pkg: Package { id: PackageId { name: "mcp-server-microsoft-paint", version: "0.1.0", source: "C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint" }, ..: ".." }, target: TargetInner { name: "mcp-server-microsoft-paint", doc: true, ..: with_path("C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint\\src\\main.rs", Edition2021) }, profile: Profile { strip: Resolved(Named("debuginfo")), ..: default_release() }, kind: Host, mode: Build, features: [], rustflags: [], rustdocflags: [], links_overrides: {}, artifact: false, artifact_target_for_features: None, is_std: false, dep_hash: 392317476812791307 }
+Second unit: Unit { pkg: Package { id: PackageId { name: "mcp-server-microsoft-paint", version: "0.1.0", source: "C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint" }, ..: ".." }, target: TargetInner { name_inferred: true, ..: lib_target("mcp_server_microsoft_paint", ["cdylib", "rlib"], "C:\\Users\\ghuntley\\Desktop\\mcp-server-microsoft-paint\\src\\lib.rs", Edition2021) }, profile: Profile { strip: Resolved(Named("debuginfo")), ..: default_release() }, kind: Host, mode: Build, features: [], rustflags: [], rustdocflags: [], links_overrides: {}, artifact: false, artifact_target_for_features: None, is_std: false, dep_hash: 2017330607264117138 }
+   Compiling mcp-server-microsoft-paint v0.1.0 (C:\Users\ghuntley\Desktop\mcp-server-microsoft-paint)
+warning: unused import: `LevelFilter`
+ --> src\lib.rs:7:24
+  |
+7 | use log::{info, error, LevelFilter, debug, warn};
+  |                        ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Write` and `self`
+  --> src\lib.rs:13:15
+   |
+13 | use std::io::{self, Write};
+   |               ^^^^  ^^^^^
+
+warning: unused import: `std::ptr`
+ --> src\windows.rs:6:5
+  |
+6 | use std::ptr;
+  |     ^^^^^^^^
+
+warning: unused imports: `CreateProcessW`, `PROCESS_INFORMATION`, and `STARTUPINFOW`
+ --> src\windows.rs:8:45
+  |
+8 | use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
+  |                                             ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused imports: `VK_BACK`, `VK_DOWN`, `VK_LEFT`, `VK_MENU`, `VK_RIGHT`, and `VK_UP`
+  --> src\windows.rs:20:80
+   |
+20 |     INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, VK_CONTROL, VK_SHIFT, VK_MENU,
+   |                                                                                ^^^^^^^
+21 |     VK_RETURN, VK_TAB, VK_ESCAPE, VK_DELETE, VK_BACK, VK_SPACE, VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN,
+   |                                              ^^^^^^^            ^^^^^^^  ^^^^^^^^  ^^^^^  ^^^^^^^
+
+warning: unused import: `windows_sys::Win32::UI::Input::KeyboardAndMouse::MOUSEINPUT`
+  --> src\windows.rs:25:5
+   |
+25 | use windows_sys::Win32::UI::Input::KeyboardAndMouse::MOUSEINPUT;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ConnectResponse`
+ --> src\core.rs:4:38
+  |
+4 | use crate::protocol::{ConnectParams, ConnectResponse, success_response, DrawPixelParams, DrawLineParams, DrawShapeParams, DrawPolylinePar...
+  |                                      ^^^^^^^^^^^^^^^
+
+warning: unused import: `get_paint_hwnd`
+ --> src\core.rs:6:22
+  |
+6 | use crate::windows::{get_paint_hwnd, get_initial_canvas_dimensions, activate_paint_window, get_canvas_dimensions, draw_pixel_at, draw_lin...
+  |                      ^^^^^^^^^^^^^^
+
+warning: unused imports: `debug` and `warn`
+ --> src\core.rs:8:17
+  |
+8 | use log::{info, warn, error, debug};
+  |                 ^^^^         ^^^^^
+
+warning: unused import: `std::time`
+  --> src\core.rs:10:5
+   |
+10 | use std::time;
+   |     ^^^^^^^^^
+
+warning: unused import: `tokio`
+  --> src\core.rs:11:5
+   |
+11 | use tokio;
+   |     ^^^^^
+
+warning: unnecessary `unsafe` block
+   --> src\windows.rs:313:5
+    |
+313 |     unsafe {
+    |     ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` on by default
+
+warning: unused variable: `potential_hwnd`
+   --> src\windows.rs:583:17
+    |
+583 |         let mut potential_hwnd = 0;
+    |                 ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_potential_hwnd`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> src\windows.rs:583:13
+    |
+583 |         let mut potential_hwnd = 0;
+    |             ----^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `font_name`
+    --> src\windows.rs:1764:5
+     |
+1764 |     font_name: Option<&str>,
+     |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_font_name`
+
+warning: unused variable: `font_size`
+    --> src\windows.rs:1765:5
+     |
+1765 |     font_size: Option<u32>,
+     |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_font_size`
+
+warning: unused variable: `font_style`
+    --> src\windows.rs:1766:5
+     |
+1766 |     font_style: Option<&str>
+     |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_font_style`
+
+warning: constant `PAINT_CLASS_NAME` is never used
+  --> src\windows.rs:31:7
+   |
+31 | const PAINT_CLASS_NAME: &str = "MSPaintApp";
+   |       ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: constant `PAINT_WINDOW_TITLE_SUBSTRING` is never used
+  --> src\windows.rs:32:7
+   |
+32 | const PAINT_WINDOW_TITLE_SUBSTRING: &str = "Paint";
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `mcp-server-microsoft-paint` (lib) generated 19 warnings (run `cargo fix --lib -p mcp-server-microsoft-paint` to apply 12 suggestions)
+warning: unused import: `std::path::PathBuf`
+ --> src\main.rs:7:5
+  |
+7 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `mcp-server-microsoft-paint` (bin "mcp-server-microsoft-paint") generated 1 warning (run `cargo fix --bin "mcp-server-microsoft-paint"` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 3.22s
+     Running `target\release\mcp-server-microsoft-paint.exe`
+2025-04-03T18:27:49.1365433Z [0m[34m[INFO] [0mLogging initialized. Debug logs writing to: "C:\\Users\\ghuntley\\AppData\\Local\\Temp\\mcp_server_debug.log"
+2025-04-03T18:27:49.1367866Z [0m[34m[INFO] [0mStarting MCP Server for Windows 11 Paint...
+2025-04-03T18:27:49.1368355Z [0m[34m[INFO] [0mStarting MCP Server for Windows 11 Paint (Async Version)...
+2025-04-03T18:27:49.1378011Z [0m[34m[INFO] [0mMCP Server starting run loop...
+2025-04-03T18:27:49.1382312Z [0m[31m[ERROR] [0mMCP Server run failed: Serialization error: missing field `type` at line 1 column 127
+error: process didn't exit successfully: `target\release\mcp-server-microsoft-paint.exe` (exit code: 0xc000013a, STATUS_CONTROL_C_EXIT)

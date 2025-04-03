@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_json::json;
 use crate::error::Result;
 use crate::core;
 
@@ -165,16 +166,23 @@ pub struct ErrorDetails {
 
 // Helper function to create a standard success response
 pub fn success_response() -> serde_json::Value {
-    serde_json::to_value(SuccessResponse { status: "success".to_string() }).unwrap_or_default()
+    json!({
+        "jsonrpc": "2.0",
+        "id": 1, // Default id, should be overridden when needed
+        "result": {} // Empty result object for simple success responses
+    })
 }
 
 // Helper function to create a standard error response
 pub fn error_response(code: i32, message: String) -> serde_json::Value {
-    serde_json::to_value(ErrorResponse {
-        status: "error".to_string(),
-        error: ErrorDetails { code, message },
+    json!({
+        "jsonrpc": "2.0",
+        "id": null, // Use null for errors where id is unknown
+        "error": {
+            "code": code,
+            "message": message
+        }
     })
-    .unwrap_or_default()
 }
 
 // Basic tests for struct serialization/deserialization

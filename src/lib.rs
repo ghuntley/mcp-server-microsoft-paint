@@ -1,8 +1,8 @@
 use mcp_rust_sdk::{
+    error::{Error as SdkError, ErrorCode},
     server::{ServerHandler, Server}, 
     transport::stdio::StdioTransport,
     types::{ClientCapabilities, ServerCapabilities, Implementation},
-    Error as SdkError, error::ErrorCode
 };
 use log::{info, error, LevelFilter, debug, warn};
 use tokio::runtime::Runtime;
@@ -50,7 +50,15 @@ fn log_process_tree(label: &str) {
 // Define a struct to hold our server state
 #[derive(Clone)]
 pub struct PaintServerState {
-    paint_hwnd: Arc<Mutex<Option<HWND>>>, // Store HWND in Arc<Mutex>
+    pub paint_hwnd: Arc<Mutex<Option<HWND>>>, // Store HWND in Arc<Mutex>
+}
+
+impl PaintServerState {
+    pub fn new() -> Self {
+        PaintServerState {
+            paint_hwnd: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 // Implement the server handler trait from mcp_rust_sdk
@@ -110,6 +118,9 @@ impl ServerHandler for PaintServerState {
         // Route request to appropriate async handler in `core` module
         // Pass the cloned state to the handler
         let result: std::result::Result<serde_json::Value, MspMcpError> = match method {
+            "initialize" => {
+                core::handle_initialize(self.clone(), params).await
+            }
             "connect" => {
                 core::handle_connect(self.clone(), params).await
             }
@@ -139,15 +150,19 @@ impl ServerHandler for PaintServerState {
 
         // Convert our Result<Value, MspMcpError> to Result<Value, SdkError>
         match result {
-            Ok(value) => Ok(value),
+            Ok(value) => {
+                // Just return the value since the SDK should handle adding jsonrpc and id
+                Ok(value)
+            },
             Err(msp_error) => {
-                let code = msp_error.code(); // Keep our internal code for logging
+                let code = msp_error.code(); // Keep our internal code for logging 
                 let message = msp_error.to_string();
                 error!("Error processing method '{}': Code {}, Message: {}", method, code, message);
-                // Map our internal error to SDK's Protocol error using a standard JSON-RPC code
+                
+                // Convert to a SdkError which the SDK will format as a proper JSON-RPC error
                 Err(SdkError::Protocol {
-                    code: ErrorCode::InternalError, // Use standard InternalError code (-32603)
-                    message,
+                    code: ErrorCode::InternalError,
+                    message: message,
                     data: None,
                 })
             }
@@ -167,9 +182,7 @@ pub fn run_server() -> Result<()> {
     let rt = Runtime::new().map_err(|e| MspMcpError::IoError(e))?;
 
     rt.block_on(async {
-        let initial_state = PaintServerState {
-            paint_hwnd: Arc::new(Mutex::new(None)),
-        };
+        let initial_state = PaintServerState::new();
         let (transport, _handler_connection) = StdioTransport::new(); // handler_connection might not be needed here
 
         let handler = Arc::new(initial_state);
