@@ -1559,6 +1559,14 @@ pub fn set_fill(hwnd: HWND, fill_type: &str) -> Result<()> {
 /// Draws a shape from (start_x, start_y) to (end_x, end_y).
 /// Selects the appropriate shape tool and uses mouse drag to create the shape.
 pub fn draw_shape(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, end_x: i32, end_y: i32) -> Result<()> {
+    // First, try to use the UIA implementation
+    if let Ok(()) = crate::uia::draw_shape_uia(hwnd, shape_type, start_x, start_y, end_x, end_y) {
+        return Ok(());
+    }
+    
+    // Fall back to the old implementation if UIA fails
+    info!("Falling back to legacy draw_shape implementation");
+    
     // Make sure the Paint window is active
     activate_paint_window(hwnd)?;
     

@@ -47,6 +47,7 @@ simplelog = "0.12"  # Add simplelog
 
 # Base64 Encoding/Decoding
 base64 = "0.22"
+uiautomation = { version = "0.17.3", features = ["log"] }
 
 # Optional: Add development dependencies for testing
 [dev-dependencies]

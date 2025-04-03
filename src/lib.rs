@@ -17,6 +17,7 @@ pub mod error;
 pub mod protocol;
 pub mod windows;
 pub mod core;
+pub mod uia;
 
 use crate::error::{Result, MspMcpError};
 
@@ -141,6 +142,24 @@ impl ServerHandler for PaintServerState {
             }
             "draw_line" => {
                 core::handle_draw_line(self.clone(), params).await
+            }
+            "draw_shape" => {
+                core::handle_draw_shape(self.clone(), params).await
+            }
+            "draw_polyline" => {
+                core::handle_draw_polyline(self.clone(), params).await
+            }
+            "set_color" => {
+                core::handle_set_color(self.clone(), params).await
+            }
+            "set_thickness" => {
+                core::handle_set_thickness(self.clone(), params).await
+            }
+            "set_fill" => {
+                core::handle_set_fill(self.clone(), params).await
+            }
+            "select_tool" => {
+                core::handle_select_tool(self.clone(), params).await
             }
             // Add other method handlers here, calling functions in core.rs
             _ => {

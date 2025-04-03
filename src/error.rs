@@ -50,8 +50,14 @@ pub enum MspMcpError {
     #[error("Canvas creation failed: {0}")]
     CanvasCreationFailed(String), // 1015
 
+    #[error("Element not found: {0}")]
+    ElementNotFound(String), // 1016
+
     #[error("Windows API error: {0}")]
     WindowsApiError(String),
+
+    #[error("UI Automation error: {0}")]
+    UiAutomationError(String),
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
@@ -85,12 +91,21 @@ impl MspMcpError {
             MspMcpError::FontSelectionFailed(_) => 1013,
             MspMcpError::ImageTransformationFailed(_) => 1014,
             MspMcpError::CanvasCreationFailed(_) => 1015,
+            MspMcpError::ElementNotFound(_) => 1016,
             // Internal errors might map to a general code or have specific ones if needed
             MspMcpError::WindowsApiError(_) => 1000,
+            MspMcpError::UiAutomationError(_) => 1000,
             MspMcpError::IoError(_) => 1000,
             MspMcpError::JsonError(_) => 1000,
             MspMcpError::Base64DecodeError(_) => 1003, // Map to invalid params maybe?
         }
+    }
+}
+
+// Implement From for UIAutomation errors
+impl From<uiautomation::Error> for MspMcpError {
+    fn from(err: uiautomation::Error) -> Self {
+        MspMcpError::UiAutomationError(format!("{}", err))
     }
 }
 
