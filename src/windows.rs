@@ -1873,4 +1873,50 @@ pub fn get_direct_paint_hwnd() -> Result<HWND> {
     get_paint_hwnd()
 }
 
-// TODO: Add tests for tool selection and color management functions 
+/// Sends a mouse left button down event at the current cursor position
+pub fn send_mouse_down() -> Result<()> {
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse down input".to_string()));
+        }
+    }
+    
+    Ok(())
+}
+
+/// Sends a mouse left button up event at the current cursor position
+pub fn send_mouse_up() -> Result<()> {
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    
+    unsafe {
+        let mi = &mut input.Anonymous.mi;
+        mi.dx = 0;
+        mi.dy = 0;
+        mi.mouseData = 0;
+        mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        mi.time = 0;
+        mi.dwExtraInfo = 0;
+        
+        let inputs_sent = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+        if inputs_sent != 1 {
+            return Err(MspMcpError::WindowsApiError("Failed to send mouse up input".to_string()));
+        }
+    }
+    
+    Ok(())
+}
+
+// ... existing code ...

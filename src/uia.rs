@@ -10,6 +10,7 @@ use uiautomation::{
     controls::{PaneControl, ToolBarControl, ButtonControl, Control},
 };
 use windows_sys::Win32::Foundation::HWND;
+use crate::windows;
 
 // Cached mapping of tool names to their UI Automation elements
 static mut TOOL_BUTTON_CACHE: Option<HashMap<String, String>> = None;
@@ -832,23 +833,27 @@ pub fn draw_shape_uia(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, 
     }
     
     // First, select the shape tool
-    select_tool_uia(hwnd, "shape")?;
+    // Try using the direct approach to click the Shapes button in the ribbon
+    info!("Selecting shape tool from ribbon");
     
-    // Then, select the specific shape type from the shapes gallery
-    let shapes_matcher = automation.create_matcher()
+    // First activate the Paint window
+    windows::activate_paint_window(hwnd)?;
+    
+    // Find the "Home" tab or main ribbon area
+    let ribbon_matcher = automation.create_matcher()
         .from(window.clone())
-        .contains_name("Shapes")
+        .control_type(PaneControl::TYPE)
         .timeout(2000);
         
-    let shapes_gallery = match shapes_matcher.find_first() {
-        Ok(gallery) => gallery,
+    let ribbon = match ribbon_matcher.find_first() {
+        Ok(ribbon) => ribbon,
         Err(err) => {
-            warn!("Could not find shapes gallery: {}", err);
-            return Err(MspMcpError::ElementNotFound("Shapes gallery".to_string()));
+            warn!("Could not find ribbon: {}", err);
+            return Err(MspMcpError::ElementNotFound("Ribbon section".to_string()));
         }
     };
     
-    // Create a true condition for finding elements
+    // Create a true condition
     let true_condition = match automation.create_true_condition() {
         Ok(condition) => condition,
         Err(err) => {
@@ -859,47 +864,59 @@ pub fn draw_shape_uia(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, 
         }
     };
     
-    // Find all elements in the shapes gallery
-    let all_elements = match shapes_gallery.find_all(TreeScope::Subtree, &true_condition) {
+    // Find all buttons in the ribbon
+    let all_elements = match ribbon.find_all(TreeScope::Subtree, &true_condition) {
         Ok(elements) => elements,
         Err(err) => {
-            error!("Error finding elements in shapes gallery: {}", err);
+            error!("Error finding elements: {}", err);
             return Err(MspMcpError::WindowsApiError(format!(
                 "Error finding elements: {}", err
             )));
         }
     };
     
-    // Filter for button elements that match our shape type
-    let shape_button = all_elements.into_iter()
+    // Look for the "Shapes" button 
+    info!("Searching for Shapes button among {} elements", all_elements.len());
+    let shapes_button = all_elements.into_iter()
         .filter(|el| {
             if let Ok(control_type) = el.get_control_type() {
                 if control_type != ButtonControl::TYPE {
                     return false;
                 }
                 
-                // Check if this button corresponds to our shape type
+                // Check for "Shapes" in name or automation ID
                 if let Ok(name) = el.get_name() {
                     let name_lower = name.to_lowercase();
-                    return name_lower.contains(&shape_type.to_lowercase());
+                    if name_lower.contains("shape") {
+                        info!("Found button named: {}", name);
+                        return true;
+                    }
+                }
+                
+                if let Ok(id) = el.get_automation_id() {
+                    let id_lower = id.to_lowercase();
+                    if id_lower.contains("shape") {
+                        info!("Found button with ID: {}", id);
+                        return true;
+                    }
                 }
             }
             false
         })
         .next();
     
-    // Select the specific shape button if found
-    if let Some(button) = shape_button {
+    // Click the shapes button if found
+    if let Some(button) = shapes_button {
         match button.get_pattern::<UIInvokePattern>() {
             Ok(invoke_pattern) => {
                 match invoke_pattern.invoke() {
                     Ok(_) => {
-                        info!("Selected shape type '{}' using UIA", shape_type);
+                        info!("Clicked Shapes button successfully");
                     },
                     Err(err) => {
-                        error!("Error invoking shape button: {}", err);
+                        error!("Error invoking Shapes button: {}", err);
                         return Err(MspMcpError::WindowsApiError(format!(
-                            "Error invoking shape button '{}': {}", shape_type, err
+                            "Error invoking Shapes button: {}", err
                         )));
                     }
                 }
@@ -908,34 +925,105 @@ pub fn draw_shape_uia(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, 
                 // Try sending space key as fallback
                 match button.send_keys(" ", 10) {
                     Ok(_) => {
-                        info!("Selected shape type '{}' by sending space key", shape_type);
+                        info!("Activated Shapes button with space key");
                     },
                     Err(err) => {
-                        error!("Error sending keys to shape button: {}", err);
+                        error!("Error sending keys to Shapes button: {}", err);
                         return Err(MspMcpError::WindowsApiError(format!(
-                            "Failed to activate shape button '{}': {}", shape_type, err
+                            "Failed to activate Shapes button: {}", err
                         )));
                     }
                 }
             }
         }
+        
+        // Wait for the shapes dropdown to appear
+        std::thread::sleep(Duration::from_millis(500));
     } else {
-        warn!("Could not find specific button for shape type '{}'", shape_type);
-        // If we can't find the specific shape, we'll just use the default shape
-        // which is usually rectangle
+        // If we couldn't find the Shapes button, try using keyboard shortcuts
+        info!("Shapes button not found, using fallback keyboard method");
+        
+        // First, activate the Paint window (again to be sure)
+        windows::activate_paint_window(hwnd)?;
+        
+        // Alt+H to access Home tab, then S for Shapes, then Down Arrow
+        window.send_keys("%h", 100)?; // Alt+H
+        std::thread::sleep(Duration::from_millis(300));
+        window.send_keys("s", 100)?; // S for Shapes
+        std::thread::sleep(Duration::from_millis(300));
     }
+    
+    // Now the shapes dropdown should be open - select rectangle or specific shape
+    // First, use arrow keys to navigate to the right shape
+    let shape_index = match shape_type.to_lowercase().as_str() {
+        "rectangle" => 0, // First shape
+        "ellipse" => 1,   // Second shape
+        "line" => 7,      // Eighth shape
+        "arrow" => 9,     // Tenth shape
+        _ => 0,           // Default to rectangle
+    };
+    
+    // Press down arrow key shape_index times
+    info!("Selecting shape {} using keyboard navigation", shape_type);
+    for _ in 0..shape_index {
+        window.send_keys("{DOWN}", 50)?;
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    
+    // Enter to select the shape
+    window.send_keys("{ENTER}", 100)?;
+    std::thread::sleep(Duration::from_millis(300));
+    
+    // Now draw the shape by finding the canvas and performing mouse actions
+    info!("Finding canvas element to draw shape");
     
     // Get the canvas element
     let canvas_matcher = automation.create_matcher()
-        .from(window)
-        .contains_name("Drawing Canvas")
-        .timeout(2000);
+        .from(window.clone())
+        .timeout(3000);
         
-    let canvas = match canvas_matcher.find_first() {
-        Ok(canvas) => canvas,
+    let elements = match canvas_matcher.find_all() {
+        Ok(elements) => elements,
         Err(err) => {
-            warn!("Could not find canvas element: {}", err);
-            return Err(MspMcpError::ElementNotFound("Drawing canvas".to_string()));
+            error!("Failed to find elements: {}", err);
+            return Err(MspMcpError::WindowsApiError(format!(
+                "Failed to find elements: {}", err
+            )));
+        }
+    };
+    
+    // Find the canvas - it's typically the largest pane element
+    let canvas = elements.into_iter()
+        .filter(|el| {
+            if let Ok(control_type) = el.get_control_type() {
+                return control_type == PaneControl::TYPE;
+            }
+            false
+        })
+        .filter(|el| {
+            // Filter by name or role if possible
+            if let Ok(name) = el.get_name() {
+                return name.contains("Canvas") || name.contains("Drawing");
+            }
+            true
+        })
+        .max_by_key(|el| {
+            // Get the element with the largest area (likely the canvas)
+            if let Ok(rect) = el.get_bounding_rectangle() {
+                let width = rect.get_right() - rect.get_left();
+                let height = rect.get_bottom() - rect.get_top();
+                width * height
+            } else {
+                0
+            }
+        });
+    
+    // Fallback to the main window if we can't find the canvas
+    let canvas = match canvas {
+        Some(canvas) => canvas,
+        None => {
+            warn!("Could not find canvas element, using main window");
+            window
         }
     };
     
@@ -950,9 +1038,10 @@ pub fn draw_shape_uia(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, 
         }
     };
     
+    info!("Canvas bounds: left={}, top={}, right={}, bottom={}", 
+          bounds.get_left(), bounds.get_top(), bounds.get_right(), bounds.get_bottom());
+    
     // Convert our coordinates to be relative to the canvas
-    // Using proper getter methods for the Rect struct
-    info!("Canvas bounds: {:?}", bounds);
     let canvas_x = bounds.get_left();
     let canvas_y = bounds.get_top();
     
@@ -962,62 +1051,26 @@ pub fn draw_shape_uia(hwnd: HWND, shape_type: &str, start_x: i32, start_y: i32, 
     let adjusted_end_x = canvas_x + end_x;
     let adjusted_end_y = canvas_y + end_y;
     
-    // Start the mouse interaction to draw the shape
-    // First, move mouse to start position and click
-    match canvas.click() {
-        Ok(_) => {},
-        Err(err) => {
-            error!("Failed to click canvas: {}", err);
-            return Err(MspMcpError::WindowsApiError(format!(
-                "Failed to click canvas: {}", err
-            )));
-        }
-    }
+    info!("Drawing from ({},{}) to ({},{}) in screen coordinates", 
+          adjusted_start_x, adjusted_start_y, adjusted_end_x, adjusted_end_y);
     
-    // Try using send_keys approach instead of direct mouse manipulation
-    // Press Tab key to ensure focus is on the canvas
-    canvas.send_keys("{TAB}", 10)?;
+    // Now use the windows API to directly manipulate the mouse
+    // This is more reliable than sending keyboard events for exact positioning
+    windows::move_mouse_to(adjusted_start_x, adjusted_start_y)?;
+    std::thread::sleep(Duration::from_millis(300));
     
-    // Move cursor to start position using keyboard
-    let mut move_keys = String::new();
-    for _ in 0..adjusted_start_x/10 {
-        move_keys.push_str("{RIGHT}");
-    }
-    for _ in 0..adjusted_start_y/10 {
-        move_keys.push_str("{DOWN}");
-    }
-    canvas.send_keys(&move_keys, 10)?;
-    
-    // Press mouse down
-    canvas.send_keys("{LBUTTON DOWN}", 10)?;
+    // Mouse down
+    windows::send_mouse_down()?;
+    std::thread::sleep(Duration::from_millis(300));
     
     // Move to end position
-    let mut drag_keys = String::new();
-    let x_diff = adjusted_end_x - adjusted_start_x;
-    let y_diff = adjusted_end_y - adjusted_start_y;
+    windows::move_mouse_to(adjusted_end_x, adjusted_end_y)?;
+    std::thread::sleep(Duration::from_millis(300));
     
-    for _ in 0..(x_diff.abs()/10) {
-        if x_diff > 0 {
-            drag_keys.push_str("{RIGHT}");
-        } else {
-            drag_keys.push_str("{LEFT}");
-        }
-    }
+    // Mouse up
+    windows::send_mouse_up()?;
     
-    for _ in 0..(y_diff.abs()/10) {
-        if y_diff > 0 {
-            drag_keys.push_str("{DOWN}");
-        } else {
-            drag_keys.push_str("{UP}");
-        }
-    }
-    
-    canvas.send_keys(&drag_keys, 10)?;
-    
-    // Release mouse
-    canvas.send_keys("{LBUTTON UP}", 10)?;
-    
-    info!("Successfully drew {} from ({},{}) to ({},{}) using UIA", 
+    info!("Successfully drew shape '{}' from ({},{}) to ({},{}) using UIA", 
           shape_type, start_x, start_y, end_x, end_y);
     Ok(())
 } 
