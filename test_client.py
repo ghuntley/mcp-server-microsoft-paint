@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import re
+from ctypes import windll
 
 def setup_logging():
     log_formatter = logging.Formatter("%(asctime)s [%(levelname)-5.5s] %(message)s")
@@ -155,6 +156,53 @@ def launch_paint():
         logging.error(f"Error launching MS Paint: {e}")
         return False
 
+def check_paint_window_state():
+    """Check if the Paint window is visible and capture its state"""
+    try:
+        import win32gui
+        import win32process
+        import psutil
+        
+        def callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if "Paint" in title and not "mcp-server" in title:
+                    try:
+                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                        proc = psutil.Process(pid)
+                        results.append({
+                            "hwnd": hwnd,
+                            "title": title,
+                            "pid": pid,
+                            "status": "Running" if proc.status() == psutil.STATUS_RUNNING else proc.status(),
+                            "cpu_percent": proc.cpu_percent(),
+                            "memory_mb": proc.memory_info().rss / (1024 * 1024),
+                            "window_rect": win32gui.GetWindowRect(hwnd),
+                            "is_minimized": win32gui.IsIconic(hwnd),
+                            "is_visible": win32gui.IsWindowVisible(hwnd),
+                        })
+                    except Exception as e:
+                        logging.error(f"Error getting process info for Paint window {hwnd}: {e}")
+            return True
+            
+        results = []
+        win32gui.EnumWindows(callback, results)
+        
+        if results:
+            for win in results:
+                logging.info(f"Found Paint window: {win}")
+            return results
+        else:
+            logging.warning("No visible Paint windows found")
+            return []
+            
+    except ImportError:
+        logging.warning("pywin32/psutil not installed, cannot check Paint window state")
+        return []
+    except Exception as e:
+        logging.error(f"Error checking Paint window state: {e}")
+        return []
+
 def main():
     setup_logging()
     server_process = None
@@ -163,12 +211,29 @@ def main():
         if not verify_paint_running():
             if not launch_paint():
                 logging.error("Failed to launch Paint. Continuing anyway but issues may occur.")
+        else:
+            logging.info("MS Paint is already running. Attempting to use existing instance.")
+            
+        # Check Paint window state
+        check_paint_window_state()
+
+        # Log the current display settings to help with debugging
+        try:
+            dc = windll.user32.GetDC(0)
+            width = windll.gdi32.GetDeviceCaps(dc, 8)  # HORZRES
+            height = windll.gdi32.GetDeviceCaps(dc, 10)  # VERTRES
+            dpi_x = windll.gdi32.GetDeviceCaps(dc, 88)  # LOGPIXELSX
+            dpi_y = windll.gdi32.GetDeviceCaps(dc, 90)  # LOGPIXELSY
+            windll.user32.ReleaseDC(0, dc)
+            logging.info(f"Display settings: {width}x{height} resolution, {dpi_x}x{dpi_y} DPI")
+        except Exception as e:
+            logging.error(f"Failed to get display settings: {e}")
 
         logging.info("Launching MCP server in TEXT mode...")
         
         # Set environment variables to control Rust logging
         env = os.environ.copy()
-        env['RUST_LOG'] = 'info,debug' # Set Rust logging level
+        env['RUST_LOG'] = 'info,trace,debug' # Set Rust logging level for more details
         
         # Use subprocess.Popen to capture stdin/stdout/stderr
         server_process = subprocess.Popen(
@@ -263,6 +328,10 @@ def main():
                     if activate_response:
                         logging.info("Activate window response: " + str(activate_response))
                     
+                    # Check Paint window state after activation
+                    logging.info("Checking Paint window state after activation:")
+                    check_paint_window_state()
+                    
                     # Try to draw a pixel
                     logging.info("Sending 'draw_pixel' request...")
                     draw_pixel_request = {
@@ -283,6 +352,107 @@ def main():
                         
                         if draw_pixel_response.get("status") == "success":
                             logging.info("Successfully drew a pixel! MCP server is working correctly.")
+                            
+                            # ---- Draw a very visible line with explicit tool selection first ----
+                            
+                            # First, select the pencil tool
+                            logging.info("Selecting pencil tool...")
+                            select_tool_request = {
+                                "jsonrpc": "2.0",
+                                "id": 4,
+                                "method": "select_tool",
+                                "params": {
+                                    "tool": "pencil"
+                                }
+                            }
+                            
+                            select_tool_response = send_request(server_process, select_tool_request)
+                            if not select_tool_response or select_tool_response.get("status") != "success":
+                                logging.error(f"Failed to select pencil tool: {select_tool_response}")
+                                return
+                            
+                            logging.info("Successfully selected pencil tool")
+                            
+                            # Set color to bright red
+                            logging.info("Setting color to bright red...")
+                            set_color_request = {
+                                "jsonrpc": "2.0",
+                                "id": 5,
+                                "method": "set_color",
+                                "params": {
+                                    "color": "#FF0000"  # Pure red
+                                }
+                            }
+                            
+                            set_color_response = send_request(server_process, set_color_request)
+                            if not set_color_response or set_color_response.get("status") != "success":
+                                logging.error(f"Failed to set color: {set_color_response}")
+                                # Try again with the draw_line command which includes the color
+                                logging.info("Will include color directly in the draw_line command")
+                            else:
+                                logging.info("Successfully set color to red")
+                            
+                            # Draw a simple horizontal line in the upper portion of the canvas
+                            logging.info("Drawing a horizontal red line...")
+                            draw_line_request = {
+                                "jsonrpc": "2.0",
+                                "id": 6,
+                                "method": "draw_line",
+                                "params": {
+                                    "start_x": 100,
+                                    "start_y": 100,
+                                    "end_x": 300,
+                                    "end_y": 100,
+                                    "color": "#FF0000",  # Explicitly include color in case set_color failed
+                                    "thickness": 3  # Make it thicker for visibility
+                                }
+                            }
+                            
+                            draw_line_response = send_request(server_process, draw_line_request)
+                            
+                            if not draw_line_response:
+                                logging.error("No response received for draw_line request")
+                            elif draw_line_response.get("status") != "success":
+                                logging.error(f"Failed to draw line: {draw_line_response}")
+                            else:
+                                logging.info("Successfully drew a red horizontal line!")
+                                
+                                # Now try a vertical line in blue
+                                logging.info("Setting color to blue...")
+                                set_color_request = {
+                                    "jsonrpc": "2.0",
+                                    "id": 7,
+                                    "method": "set_color",
+                                    "params": {
+                                        "color": "#0000FF"
+                                    }
+                                }
+                                
+                                set_color_response = send_request(server_process, set_color_request)
+                                if not set_color_response or set_color_response.get("status") != "success":
+                                    logging.error(f"Failed to set color to blue: {set_color_response}")
+                                else:
+                                    logging.info("Drawing a vertical blue line...")
+                                    draw_line_request = {
+                                        "jsonrpc": "2.0",
+                                        "id": 8,
+                                        "method": "draw_line",
+                                        "params": {
+                                            "start_x": 200,
+                                            "start_y": 50,
+                                            "end_x": 200,
+                                            "end_y": 150
+                                        }
+                                    }
+                                    
+                                    draw_line_response = send_request(server_process, draw_line_request)
+                                    
+                                    if not draw_line_response:
+                                        logging.error("No response received for vertical line request")
+                                    elif draw_line_response.get("status") != "success":
+                                        logging.error(f"Failed to draw vertical line: {draw_line_response}")
+                                    else:
+                                        logging.info("Successfully drew a blue vertical line!")
                         else:
                             logging.error("Failed to draw pixel: " + str(draw_pixel_response))
                     else:
