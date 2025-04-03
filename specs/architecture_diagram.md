@@ -4,21 +4,21 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
 │                       Client Applications                       │
-│                                                                 │
+│ (Launches Server Process)                                       │
 └───────────────────────────────┬─────────────────────────────────┘
-                                │
+                                │  <-- STDIO Communication -->
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
-│                      MCP Client Interface                       │
-│                                                                 │
+│                      MCP Server Process                         │
+│                 (Entry Point / Client Interface)                │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
 │                        MCP Core Library                         │
-│                                                                 │
+│              (Implemented using rust-mcp-sdk)                   │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
 │  │                 │  │                 │  │                 │  │
 │  │  Command Layer  │  │   Paint Layer   │  │   Event Layer   │  │
@@ -73,16 +73,16 @@ Client applications use the Paint MCP library to control Windows 11 Paint. These
 
 ### MCP Client Interface
 
-The client interface provides a high-level API for controlling Paint:
+This represents the entry point to the MCP Server process, handling the STDIO communication with the client application. It provides:
 
-* Easy-to-use method calls
-* Error handling
-* Event callbacks
+* JSON-RPC message parsing/serialization (via rust-mcp-sdk)
+* Dispatching requests to the MCP Core Library
+* Sending responses/notifications back to the client via STDOUT
 * Asynchronous operations
 
 ### MCP Core Library
 
-The core library implements the MCP protocol and provides:
+The core library implements the MCP protocol and will be built using the `rust-mcp-sdk` crate ([https://crates.io/crates/rust-mcp-sdk](https://crates.io/crates/rust-mcp-sdk)). It provides:
 
 #### Command Layer
 * Translates high-level commands into Windows API calls
@@ -186,13 +186,15 @@ The Microsoft Paint application that ships with Windows 11:
 
 ## Data Flow
 
-1. Client applications make calls to the MCP Client Interface
-2. The Command Layer validates and processes these calls
-3. Specialized managers handle specific functionality (Text, Transform, Canvas)
-4. The Paint Layer translates commands to Paint-specific operations
-5. The Windows Integration layer interacts with Windows 11 APIs
-6. Input events are sent to the Windows 11 Paint application
-7. The Event Layer monitors results and provides feedback
+1. Client applications launch the MCP Server process and send JSON-RPC requests via STDIN.
+2. The MCP Server process (Client Interface layer) receives requests, parses them (using `rust-mcp-sdk`), and dispatches them to the MCP Core Library.
+3. The Command Layer validates and processes these calls.
+4. Specialized managers handle specific functionality (Text, Transform, Canvas).
+5. The Paint Layer translates commands to Paint-specific operations.
+6. The Windows Integration layer interacts with Windows 11 APIs.
+7. Input events are sent to the Windows 11 Paint application.
+8. The Event Layer monitors results and provides feedback.
+9. Responses/notifications are sent back to the client application via STDOUT.
 
 ## Implementation Details
 

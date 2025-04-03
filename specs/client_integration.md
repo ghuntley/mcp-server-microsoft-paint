@@ -2,19 +2,26 @@
 
 ## Overview
 
-The Paint MCP client provides a programmatic interface for controlling Windows 11 Paint through a standardized API. This specification outlines the integration requirements for client applications.
+The Paint MCP client library provides a programmatic interface for controlling Windows 11 Paint. It communicates with a separate MCP server process (also implemented using `rust-mcp-sdk`) via **STDIO (Standard Input/Output)**. The client library handles launching the server process and managing the communication channel. This specification outlines the integration requirements for client applications using this library.
 
 ## Client API
 
 ### Initialization
 
+To begin interacting with Paint, the client application first creates an instance of the client library and then establishes a connection. The connection process typically involves locating the MCP server executable, launching it as a child process, and establishing communication over its standard input and standard output streams.
+
 ```rust
 // Create a new Paint MCP client instance
-let client = PaintMcpClient::new()?;
+// This might involve specifying the path to the server executable
+let client = PaintMcpClient::new(/* potentially server path */)?;
 
 // Connect to Windows 11 Paint
+// This launches the server process and sets up STDIO communication.
+// It likely performs the initial MCP handshake (initialize request/result).
 client.connect()?;
 ```
+
+**Note:** The client library internally uses the `rust-mcp-sdk` crate ([https://crates.io/crates/rust-mcp-sdk](https://crates.io/crates/rust-mcp-sdk)) to manage the JSON-RPC 2.0 messages exchanged over STDIO with the server process.
 
 ### Basic Operations
 

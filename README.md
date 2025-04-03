@@ -1,96 +1,84 @@
-# Paint MCP - Model Context Protocol for Microsoft Paint
+# MCP Server for Windows 11 Paint
 
-A Rust implementation of a Model Context Protocol (MCP) server that allows programmatic interaction with Microsoft Paint on Windows systems.
-
-## Overview
-
-Paint MCP provides a HTTP API that allows applications to interact with Microsoft Paint through a series of endpoints. It uses undocumented Windows APIs to find, control, and manipulate the Paint interface programmatically.
+This project implements a Media Control Protocol (MCP) server for Windows 11 Paint, allowing
+remote clients to control Paint through a JSON-RPC interface. It focuses on automating drawing
+operations, window management, and image manipulation through Windows API calls.
 
 ## Features
 
-- Connect to an existing Paint instance or launch a new one
-- Draw basic shapes (lines, rectangles, circles)
-- Select different drawing tools
-- Set colors
-- Save drawings
+- **Connection Management**: Connect/disconnect clients with the Paint application
+- **Window Management**: Activate the Paint window and get canvas dimensions
+- **Drawing Operations**:
+  - Tool selection (pencil, brush, fill, text, eraser, select, shape)
+  - Color and thickness configuration
+  - Draw pixel, line, shape, and polyline operations
+  - Fill type selection
+- **Selection Operations**: Select regions, copy, and paste
+- **Canvas Management**: Clear canvas, create new canvas
+- **Image Transformations**: Rotate, flip, scale, and crop
 
-## System Requirements
+## Implementation Status
 
-- Windows OS (tested on Windows 10/11)
-- Microsoft Paint installed
-- Rust toolchain
+See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for a detailed breakdown of implemented
+features and work in progress items.
 
-## Installation
+## Getting Started
+
+### Prerequisites
+
+- Windows 11 with MS Paint installed
+- Rust (latest stable version)
+
+### Building
 
 ```bash
-# Clone the repository
-git clone https://github.com/ghuntley/mcp-server-microsoft-paint.git
-cd mcp-server-microsoft-paint
-
-# Build the project
 cargo build --release
 ```
 
-## Usage
-
-### Start the MCP Server
+### Running
 
 ```bash
 cargo run --release
 ```
 
-The server will start on `http://localhost:3000`.
+The server accepts JSON-RPC commands over standard input/output.
 
-### API Endpoints
+## Command Examples
 
-See the [API documentation](specs/mcp_protocol.md) for detailed information about the available endpoints.
-
-### Example: Drawing a Red Line
-
-```bash
-curl -X POST http://localhost:3000/draw/line \
-  -H "Content-Type: application/json" \
-  -d '{
-    "start_x": 100,
-    "start_y": 100,
-    "end_x": 300,
-    "end_y": 200,
-    "color": "#FF0000",
-    "thickness": 2
-  }'
+Connect to Paint:
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "connect", "params": {"client_id": "test-client", "client_name": "Test Client"}}
 ```
 
-## Technical Details
+Draw a line:
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "draw_line", "params": {"start_x": 100, "start_y": 100, "end_x": 300, "end_y": 300, "color": "#FF0000", "thickness": 2}}
+```
 
-This project uses undocumented Windows APIs to interact with Microsoft Paint. It simulates mouse and keyboard events to operate the Paint interface, which means:
+Draw a polyline:
+```json
+{"jsonrpc": "2.0", "id": 3, "method": "draw_polyline", "params": {"points": [{"x": 10, "y": 20}, {"x": 30, "y": 40}, {"x": 50, "y": 60}], "color": "#0000FF", "thickness": 2, "tool": "pencil"}}
+```
 
-1. It's sensitive to Paint's UI layout, which can change between Windows versions
-2. It may break with Windows updates
-3. Operations are performed in real-time, visible to the user
+Select a region:
+```json
+{"jsonrpc": "2.0", "id": 4, "method": "select_region", "params": {"start_x": 50, "start_y": 50, "end_x": 200, "end_y": 200}}
+```
 
-For more technical details, see the [Windows Integration Specification](specs/windows_integration.md).
+## Architecture
 
-## Project Structure
+- `src/core.rs`: Command handlers for each MCP method
+- `src/windows.rs`: Windows API integration for interacting with Paint
+- `src/protocol.rs`: Protocol definitions for request/response payloads
+- `src/error.rs`: Error type definitions and handling
+- `src/lib.rs`: Server entry point and lifecycle management
 
-- `src/` - Rust source code
-  - `main.rs` - API server implementation
-  - `models.rs` - Data structures for API requests/responses
-  - `paint_integration.rs` - Windows API integration
-- `specs/` - Protocol and technical specifications
+## Testing
 
-## Limitations
-
-As this project uses undocumented APIs and simulates user inputs, it has several limitations:
-
-1. It's not suitable for high-volume or production use
-2. It depends on specific UI layouts that may change
-3. Drawing operations must be sequential
-4. Success of operations depends on Paint being visible and in the foreground
+```bash
+cargo test
+```
 
 ## License
 
-MIT
-
-## Disclaimer
-
-This project uses undocumented and unsupported APIs. It is provided for educational purposes only and should not be used in production environments. Microsoft Paint's UI and behavior may change with Windows updates, potentially breaking this integration. 
+[MIT License](LICENSE) 

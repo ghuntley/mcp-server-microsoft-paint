@@ -6,7 +6,9 @@ The Microsoft Paint Control Protocol (MCP) provides a standardized interface for
 
 ## Protocol Design
 
-The MCP protocol is a JSON-based RPC protocol over HTTP/WebSockets. All commands and responses are formatted as JSON objects.
+The MCP protocol is a JSON-based RPC protocol communicated over **STDIO (Standard Input/Output)**. The client launches the server process and interacts with it by writing JSON-RPC request messages to the server's standard input and reading JSON-RPC response/notification messages from the server's standard output. All commands and responses are formatted as JSON objects, adhering to the JSON-RPC 2.0 specification where applicable.
+
+**Implementation Note:** The underlying implementation will utilize the `rust-mcp-sdk` crate ([https://crates.io/crates/rust-mcp-sdk](https://crates.io/crates/rust-mcp-sdk)), a toolkit for building MCP servers and clients, which supports STDIO transport. While this specification defines Paint-specific commands, leveraging this SDK provides a robust foundation for handling the JSON-RPC communication, serialization, and potentially standard MCP messages.
 
 ## Connection Management
 

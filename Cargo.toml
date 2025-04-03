@@ -1,26 +1,53 @@
 [package]
-name = "paint-mcp"
+name = "mcp-server-microsoft-paint"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"] # cdylib for potential FFI, rlib for Rust usage
+
 [dependencies]
-tokio = { version = "1.28", features = ["full"] }
-axum = "0.6"
+# MCP Core
+mcp_rust_sdk = "0.1.1" # Use the latest version found on crates.io (0.1.1)
+
+# Async Trait
+async-trait = "0.1"
+
+# Async Utilities
+futures = "0.3"
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] } # Need tokio for mcp_rust_sdk examples
+
+# Serialization/Deserialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-windows = { version = "0.48", features = [
-    "Win32_UI_WindowsAndMessaging", 
-    "Win32_Foundation", 
-    "Win32_Graphics_Gdi", 
-    "Win32_UI_Input_KeyboardAndMouse", 
-    "Win32_System_Threading",
-    "Win32_System_ProcessStatus",
-    "Win32_System_LibraryLoader",
-    "Win32_UI_Input",
-    "Win32_System_Process",
-    "Win32_UI_Controls",
-    "Win32_UI_WindowsAndMessaging_Menus"
+
+# Windows API Interaction
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading", # For CreateProcess
+    "Win32_Graphics_Gdi",     # For GetDeviceCaps, ClientToScreen etc.
+    "Win32_UI_Input_KeyboardAndMouse", # For SendInput
+    "Win32_System_SystemInformation", # For screen metrics if needed
+    "Win32_Storage_FileSystem", # For file operations
+    "Win32_Security", # Potentially needed for some operations
+    "Win32_UI_Shell", # For ShellExecuteW
+    # Add more features as needed
 ] }
-anyhow = "1.0"
+
+# Error Handling
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+# env_logger = "0.11" # Replace env_logger with simplelog
+simplelog = "0.12"  # Add simplelog
+
+# Base64 Encoding/Decoding
+base64 = "0.22"
+
+# Optional: Add development dependencies for testing
+[dev-dependencies]
+# Add testing-specific crates here if needed, e.g., mocking libraries
